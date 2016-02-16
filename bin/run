@@ -1,0 +1,14 @@
+#!/bin/bash
+
+export SPARK_HOME=$PWD/../spark/current    
+sparkJar=$(find $SPARK_HOME/lib/ -name "*assembly*.jar" -print)
+appJar=$(find $PWD -name "*assembly*.jar" -print | grep scala | tr '\n' ':' )
+export CLASSPATH="$SPARK_HOME/conf:$sparkJar:$appJar:$PWD/target"
+echo SKYLR_ANALYTICS_HOME: $SKYLR_ANALYTICS_HOME
+echo SPARK_HOME: $SPARK_HOME
+echo Sparkjar: $sparkJar
+echo AppJar: $appJar
+echo Classpath: $CLASSPATH
+
+java -Xms5g -Xmx10g -cp $CLASSPATH org.chemotext.ProcessMain $PWD/etc/job/$1.conf
+
