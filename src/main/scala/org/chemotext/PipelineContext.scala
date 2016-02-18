@@ -16,18 +16,9 @@ import scala.collection.mutable.ListBuffer
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import scala.compat.Platform
-import scala.xml.PrettyPrinter
-import java.io.Serializable
 import java.io.File
-import java.io.FileReader
-import java.io.Reader
 import scala.util.matching.Regex
-import scala.io.Source
-import scala.xml.Elem
-import scala.xml.factory.XMLLoader
 import scala.xml.XML
-import scala.xml.pull._
-import javax.xml.stream.events._
 
 import org.deeplearning4j.models.word2vec.{ Word2Vec }
 import org.deeplearning4j.text.sentenceiterator.{ SentenceIterator, CollectionSentenceIterator }
@@ -36,117 +27,6 @@ import org.deeplearning4j.text.tokenization.tokenizer.Tokenizer
 
 object Spark {
   val ctx = new SparkContext(new SparkConf().setAppName("test").setMaster("local[*]"))
-}
-
-case class MeSHVocab (categories : Map[String,Array[String]]);
-
-class MeSH (meshData : String) {
-
-  val disease_mesh_prefix = "C"
-  val chemical_mesh_prefix = "D"
-  val protein_mesh_prefix = "D12"
-
-  val chemicals = ArrayBuffer.empty[String]
-  val proteins = ArrayBuffer.empty[String]
-  val diseases = ArrayBuffer.empty[String]
-
-  val logger = LoggerFactory.getLogger("MeSH")
-
-  def init () = {
-    var vocab : MeSHVocab = null
-    if (meshData.endsWith (".xml")) {
-      logger.info (s"Loading file at ${Platform.currentTime}")
-      val xml = new XMLEventReader(Source.fromFile(meshData))
-      var inDescriptor = false
-      var inDescriptorName = false
-      var inElementName = false
-      var elementName : String = null
-      var inTreeNum = false
-
-      for (event <- xml) {
-        event match {
-          case EvElemStart(_, "DescriptorRecord", _, _) => {
-            inDescriptor = true
-          }
-          case EvElemEnd(_, "DescriptorRecord") => {
-            inDescriptor = false
-            elementName = null
-          }
-          case EvElemStart (_, "DescriptorName", _, _) => {
-            inDescriptorName = true
-          }
-          case EvElemStart (_, "String", _, _) => {
-            if (inDescriptorName) {
-              inElementName = true
-            }
-          }
-          case EvElemEnd (_, "String") => {
-            if (inDescriptorName) {
-              inElementName = false
-            }
-          }
-          case EvElemStart (_, "TreeNumber", _, _) => {
-            inTreeNum = true
-          }
-          case EvElemEnd (_, "TreeNumber") => {
-            inTreeNum = false
-          }
-          case EvText(t) => {
-            if (inElementName) {
-              elementName = t.trim ().toLowerCase ()
-            } else if (inTreeNum) {
-              if (elementName != null) {
-                val treeNumber = t
-                if (treeNumber.startsWith (protein_mesh_prefix)) {
-                  addElement ("proteins", proteins, elementName)
-                } else if (treeNumber.startsWith (disease_mesh_prefix)) {
-                  addElement ("diseases", diseases, elementName)
-                } else if (treeNumber.startsWith (chemical_mesh_prefix)) {
-                  addElement ("chemicals", chemicals, elementName)
-                }
-              }
-            }
-          }
-          case _ => {
-            //println (s" event : ${event.getClass}")
-          }
-        }
-      }
-    } else if (meshData.endsWith (".json")) {
-      implicit val formats = DefaultFormats
-      val source = scala.io.Source.fromFile(meshData)
-      val lines = try source.mkString finally source.close()
-      val json = parse (lines)
-      val vocab = json.extract [MeSHVocab]
-      vocab.categories.foreach { keyVal =>
-        if (keyVal._1.equals ("chemicals")) {
-          keyVal._2.map { item =>
-            chemicals += item
-          }
-        } else if (keyVal._1.equals ("proteins")) {
-          keyVal._2.map { item =>
-            proteins += item
-          }
-        } else if (keyVal._1.equals ("diseases")) {
-          keyVal._2.map { item =>
-            diseases += item
-          }
-        }
-      }
-    }
-  }
-
-  def addElement (typeName : String, buffer : ArrayBuffer[String], elementName : String) = {
-    if (! buffer.contains (elementName)) {
-      buffer += elementName
-      logger.debug (s"adding $elementName of type $typeName")
-    }
-  }
-
-  def getChemicals () = { chemicals }
-  def getProteins () = { proteins }
-  def getDiseases () = { diseases }
-
 }
 
 /***
@@ -205,8 +85,7 @@ object Processor {
     */ 
   def quantifyArticle (article : String, meshXML : String) : ListBuffer[List[(String, Int, Int, Int)]] = {
     val results : ListBuffer[List[(String, Int, Int, Int)]] = ListBuffer ()
-    val mesh = new MeSH (meshXML)
-    mesh.init ()
+    val mesh = MeSHFactory.getMeSH (meshXML)
     logger.info (s"@-article: ${article}")
     var docPos = 0
     var paraPos = 0
@@ -320,6 +199,7 @@ class PipelineContext (
 
   def execute () = {
     logger.info ("Searching documents for term relationships.")
+    val mesh = MeSHFactory.getMeSH (meshXML)
     analyzeDocuments (appHome, articleRootPath, meshXML)
   }
 }
