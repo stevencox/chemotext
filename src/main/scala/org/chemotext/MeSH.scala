@@ -14,11 +14,11 @@ import javax.xml.stream.events._
 import org.json4s._
 import org.json4s.jackson.JsonMethods._
 
-//import org.json4s.native.Serialization
-//import org.json4s.native.Serialization.{read, write}
+import org.json4s.native.Serialization
+import org.json4s.native.Serialization.{read, write}
 
-import org.json4s.jackson.Serialization
-import org.json4s.jackson.Serialization.{read, write}
+//import org.json4s.jackson.Serialization
+//import org.json4s.jackson.Serialization.{read, write}
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import scala.collection.JavaConversions._
