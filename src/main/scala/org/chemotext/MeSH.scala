@@ -13,12 +13,8 @@ import java.nio.file.{Paths, Files}
 import javax.xml.stream.events._
 import org.json4s._
 import org.json4s.jackson.JsonMethods._
-
 import org.json4s.native.Serialization
 import org.json4s.native.Serialization.{read, write}
-
-//import org.json4s.jackson.Serialization
-//import org.json4s.jackson.Serialization.{read, write}
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import scala.collection.JavaConversions._
@@ -66,48 +62,22 @@ object MeSHFactory {
   def readJSON (jsonPath : String) = {
     var mesh : MeSH = null
     var meshVocab : MeSHVocab = null
-    val startTime = Platform.currentTime
-    if (Files.exists(Paths.get(jsonPath))) {
-      var in : BufferedReader = null
-      try {
-        val data = new StringBuilder ()
-        in = new BufferedReader (new FileReader (jsonPath), 4096)
-        var line = in.readLine ()
-        while (line != null) {
-          data.append (line)
-          line = in.readLine ()
-        }
-        implicit val formats = DefaultFormats
-        var json = parse (data.toString())
-        meshVocab = json.extract [MeSHVocab]
-        mesh = new MeSH ()
-
-        logger.info (s"0 => ${meshVocab.categories(0)._1}")
-        logger.info (s"1 => ${meshVocab.categories(1)._1}")
-        logger.info (s"2 => ${meshVocab.categories(2)._1}")
-        mesh.chemicals = meshVocab.categories(0)._2.to[ArrayBuffer]
-        mesh.proteins = meshVocab.categories(1)._2.to[ArrayBuffer]
-        mesh.diseases = meshVocab.categories(2)._2.to[ArrayBuffer]
-      } catch {
-        case e: IOException =>
-          logger.error (s"Error reading json $e")
-          in.close ()
-      } finally {
-        in.close ()
-      }
+    var json = JSONUtils.readJSON (jsonPath)
+    if (json != null) {
+      implicit val formats = DefaultFormats
+      meshVocab = json.extract [MeSHVocab]
+      mesh = new MeSH ()
+      logger.info (s"0 => ${meshVocab.categories(0)._1}")
+      logger.info (s"1 => ${meshVocab.categories(1)._1}")
+      logger.info (s"2 => ${meshVocab.categories(2)._1}")
+      mesh.chemicals = meshVocab.categories(0)._2.to[ArrayBuffer]
+      mesh.proteins = meshVocab.categories(1)._2.to[ArrayBuffer]
+      mesh.diseases = meshVocab.categories(2)._2.to[ArrayBuffer]
     }
-
-    val endTime = Platform.currentTime
-    logger.info (s"""
-Loaded ${mesh.chemicals.size} chemicals 
-       ${mesh.proteins.size} proteins and 
-       ${mesh.diseases.size} diseases in ${(endTime - startTime) / 1000} seconds.""")
-
     mesh
   }
 
   def writeJSON (mesh : MeSH, jsonPath : String) = {
-    // Write JSON
     val startTime = Platform.currentTime
     implicit val formats = Serialization.formats(NoTypeHints)
     val meshVocab = new MeSHVocab (List (
@@ -115,26 +85,7 @@ Loaded ${mesh.chemicals.size} chemicals
       ( "proteins",  mesh.proteins.toArray ),
       ( "diseases",  mesh.diseases.toArray )
     ))
-    val serialized = write (meshVocab)
-    var out : PrintWriter = null
-    try {
-      out = new PrintWriter(new BufferedWriter (new FileWriter (jsonPath)))
-      out.println (serialized)
-      out.flush ()
-    } catch {
-      case e : IOException =>
-        logger.error (s"Error writing json mesh vocab: $e")
-        out.close ()
-    } finally {
-      out.close ()
-    }
-
-    val endTime = Platform.currentTime
-    logger.info (s"""
-Wrote ${mesh.chemicals.size} chemicals 
-      ${mesh.proteins.size} proteins and 
-      ${mesh.diseases.size} diseases in ${(endTime - startTime) / 1000} seconds.""")
-
+    JSONUtils.writeJSON (meshVocab, jsonPath)
   }
 
 }
@@ -235,7 +186,6 @@ class MeSH (meshData : String = "") {
 Loaded ${chemicals.size} chemicals 
        ${proteins.size} proteins and 
        ${diseases.size} diseases in ${(endTime - startTime) / 1000} seconds.""")
-
   }
 
   def addElement (typeName : String, buffer : ArrayBuffer[String], elementName : String) = {
