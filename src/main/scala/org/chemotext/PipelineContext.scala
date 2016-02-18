@@ -56,20 +56,39 @@ object Processor {
 
   val logger = LoggerFactory.getLogger("Processor")
 
+  def findTriples (article : String, meshXML : String) 
+      : List[( String, String, String)] =
+  {
+    val pairs = quantifyPairs (article, meshXML)
+    var AB = pairs (0)
+    var BC = pairs (1)
+    logger.debug (s" Finding triples in AB/BC pair lists ${AB.length}/${BC.length} long")
+    AB.flatMap { ab =>
+      BC.map { bc =>
+        if (ab._2.equals (bc._1)) {
+          ( ab._1, ab._2, bc._2 )
+        } else {
+          ( null, null, null )
+        }
+      }
+    }.filter { item =>
+      item._1 != null
+    }
+  }
+
   /**
     * Derive A->B, B->C, A->C relationships from raw word positions
     */
   def quantifyPairs (article : String, meshXML : String) 
       : List[List[(String, String, Float)]] = 
   {
-    var A : List[(String, String, Float)] = List ()
-    var B : List[(String, String, Float)] = List ()
-    var C : List[(String, String, Float)] = List ()
+    var AB : List[(String, String, Float)] = List ()
+    var BC : List[(String, String, Float)] = List ()
+    var AC : List[(String, String, Float)] = List ()
 
     val result : ListBuffer[List[(String, String, Float)]] = new ListBuffer ()
     val words = quantifyArticle (article, meshXML)
-    logger.info (s"Quantify article produced ${words.length} word lists.")
-    val threshold = 20
+    val threshold = 200
     if (words.length == 3) {
       AB = findCooccurring (words (0), words (1), threshold)
       BC = findCooccurring (words (1), words (2), threshold)
@@ -90,8 +109,8 @@ object Processor {
     L.flatMap { left =>
       R.map { right =>
         val difference = math.abs (left._2 - right._2)
-        logger.info (s"     difference $difference")
-        if ( difference < threshold ) {
+        if ( difference < threshold && difference > 0) {
+          logger.debug (s"     difference $difference")
           ( left._1, right._1, difference / threshold.toFloat )
         } else {
           ( null, null, 0.0f )
@@ -175,10 +194,24 @@ class PipelineContext (
 {
   val logger = LoggerFactory.getLogger ("PipelineContext")
 
-  def recursiveListFiles(f: File, r: Regex): Array[File] = {
+  def recursiveListFiles(f : File, r : Regex): Array[File] = {
     val these = f.listFiles
     val good = these.filter(f => r.findFirstIn(f.getName).isDefined)
     good ++ these.filter(_.isDirectory).flatMap(recursiveListFiles(_, r))
+  }
+
+  def getFileList (articleRootDir : File, articleRegex : Regex) : Array[String] = {
+    var fileList : Array[String] = null
+    val fileListPath = "filelist.json"
+    val json = readJSON (fileListPath)
+    if (json != null) {
+      implicit val formats = DefaultFormats
+      json.extract[Array[String]]
+    } else {
+      fileList = recursiveListFiles (articleRootDir, articleRegex).map (_.getCanonicalPath)
+      writeJSON (fileList, fileListPath)
+      fileList
+    }
   }
 
   def analyzeDocuments (
@@ -189,16 +222,20 @@ class PipelineContext (
     val extendedMesh = "---"
     val articleRootDir = new File (articleRootPath)
     val articleRegex = new Regex (".*.fxml")
-    val articleList = recursiveListFiles (articleRootDir, articleRegex)
+    val articleList = getFileList (articleRootDir, articleRegex)
 
     var articles = Spark.ctx.parallelize (articleList).map { a =>
-      ( a.getCanonicalPath (), s"$meshXML" )
-    }.sample (false, 0.001).cache ()
+      ( a, s"$meshXML" )
+    }.sample (false, 0.01).cache ()
 
     logger.info (s"Processing ${articles.count} articles")
     val words = articles.flatMap { article =>
-      Processor.quantifyPairs (article._1, article._2)
-    }.cache ()
+      Processor.findTriples (article._1, article._2)
+    }.map { triple =>
+      ( triple, 1 )
+    }.reduceByKey (_ + _).map { tuple =>
+      ( tuple._1._1, tuple._1._2, tuple._1._3, tuple._2 )
+    }.sortBy (elem => -elem._4)
 
     words.collect ().foreach { a =>
       logger.info (s"${a}")
@@ -229,9 +266,9 @@ class PipelineContext (
       } finally {
         in.close ()
       }
+      val endTime = Platform.currentTime
+      logger.info (s"""Loaded json in ${(endTime - startTime) / 1000} seconds.""")
     }
-    val endTime = Platform.currentTime
-    logger.info (s"""Loaded json in ${(endTime - startTime) / 1000} seconds.""")
     json
   }
 
@@ -255,9 +292,6 @@ class PipelineContext (
     val endTime = Platform.currentTime
     logger.info (s"Wrote json in ${(endTime - startTime) / 1000} seconds.")
   }
-
-
-
 
   def execute () = {
     logger.info ("Searching documents for term relationships.")
