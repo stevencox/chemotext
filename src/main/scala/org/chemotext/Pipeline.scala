@@ -22,7 +22,7 @@ class Pipeline (theSparkConf : SparkConf) extends Serializable {
    */
   def init () : PipelineContext = {
 
-//    val sc = new SparkContext (sparkConf)
+    val sc = new SparkContext (sparkConf)
     val appHome = sparkConf.get ("appHome")
     val meshXML = sparkConf.get ("meshXML")
     val articleRootPath = sparkConf.get ("articleRootPath")
@@ -31,7 +31,7 @@ class Pipeline (theSparkConf : SparkConf) extends Serializable {
      ** We create a chemotext context connected to the current
      ** spark context.
      **********************************************************/
-    new PipelineContext (appHome, meshXML, articleRootPath)
+    new PipelineContext (sc, appHome, meshXML, articleRootPath)
   }
 
   /***

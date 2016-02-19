@@ -23,9 +23,17 @@ import org.deeplearning4j.text.sentenceiterator.{ SentenceIterator, CollectionSe
 import org.deeplearning4j.text.tokenization.tokenizerfactory.DefaultTokenizerFactory
 import org.deeplearning4j.text.tokenization.tokenizer.Tokenizer
 
+import org.apache.spark.ml.classification.MultilayerPerceptronClassifier
+import org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator
+import org.apache.spark.sql.Row
+import org.apache.spark.sql.SQLContext
+import org.apache.spark.sql.DataFrame
+
+/*
 object Spark {
   val ctx = new SparkContext(new SparkConf().setAppName("test").setMaster("local[*]"))
 }
+ */
 
 /***
  * Processor for searching articles for terms.
@@ -36,10 +44,36 @@ object Processor {
 
   val logger = LoggerFactory.getLogger("Processor")
 
+  // https://spark.apache.org/docs/1.6.0/api/scala/index.html#org.apache.spark.ml.classification.MultilayerPerceptronClassifier
+  def executeMultiLayerPerceptronClassifier (train : DataFrame, test : DataFrame) = {
+    val layers = Array[Int](4, 5, 4, 3)
+    // create the trainer and set its parameters
+    val trainer = new MultilayerPerceptronClassifier()
+      .setLayers(layers)
+      .setBlockSize(128)
+      .setSeed(1234L)
+      .setMaxIter(100)
+
+    // train the model
+    val model = trainer.fit(train)
+
+    // compute precision on the test set
+    val result = model.transform(test)
+    val predictionAndLabels = result.select("prediction", "label")
+    val evaluator = new MulticlassClassificationEvaluator()
+      .setMetricName("precision")
+    println("Precision:" + evaluator.evaluate(predictionAndLabels))
+  }
+
   def findTriples (article : String, meshXML : String) 
       : List[( String, String, String)] =
   {
-    val pairs = quantifyPairs (article, meshXML)
+    findTriples (findPairs (article, meshXML))
+  }
+
+  def findTriples (pairs : List[List[(String, String, Float)]])
+      : List[( String, String, String)] =
+  {
     var AB = pairs (0)
     var BC = pairs (1)
     logger.debug (s" Finding triples in AB/BC pair lists ${AB.length}/${BC.length} long")
@@ -59,22 +93,21 @@ object Processor {
   /**
     * Derive A->B, B->C, A->C relationships from raw word positions
     */
-  def quantifyPairs (article : String, meshXML : String) 
+  def findPairs (article : String, meshXML : String) 
       : List[List[(String, String, Float)]] = 
   {
-    var AB : List[(String, String, Float)] = List ()
-    var BC : List[(String, String, Float)] = List ()
-    var AC : List[(String, String, Float)] = List ()
+    findPairs (quantifyArticle (article, meshXML))
+  }
 
-    val result : ListBuffer[List[(String, String, Float)]] = new ListBuffer ()
-    val words = quantifyArticle (article, meshXML)
+  def findPairs (words : List[List[(String, Int, Int, Int)]]) 
+      : List[List[(String, String, Float)]] = 
+  {
     val threshold = 100
-    if (words.length == 3) {
-      AB = findCooccurring (words (0), words (1), threshold)
-      BC = findCooccurring (words (1), words (2), threshold)
-      AC = findCooccurring (words (0), words (2), threshold)
-    }
-    List ( AB, BC, AC )
+    List (
+      findCooccurring (words (0), words (1), threshold),
+      findCooccurring (words (1), words (2), threshold),
+      findCooccurring (words (0), words (2), threshold)
+    )
   }
 
   /**
@@ -88,7 +121,7 @@ object Processor {
   {
     L.flatMap { left =>
       R.map { right =>
-        val difference = math.abs (left._2 - right._2)
+        val difference = math.abs (left._2 - right._2) // comparing doc pos
         if ( difference < threshold && difference > 0) {
           logger.debug (s"     difference $difference")
           ( left._1, right._1, difference / threshold.toFloat )
@@ -159,17 +192,67 @@ object Processor {
     }
     result.toList
   }
+
+  def executeChemotextPipeline (rdd : RDD[String], meshXML : String, ctd : RDD[String]) = {
+    val words = rdd.map { a =>
+      ( a, s"$meshXML" )
+    }.sample (false, 0.001).map { article =>
+      Processor.quantifyArticle (article._1, article._2)
+    }.map { item =>
+      Processor.findPairs (item)
+    }.flatMap { item =>
+      Processor.findTriples (item)
+    }.map { triple =>
+      ( triple, 1 )
+    }.reduceByKey (_ + _).map { tuple =>
+      ( tuple._1._1, tuple._1._2, tuple._1._3, tuple._2 )
+    }.sortBy (elem => -elem._4)
+
+    words.foreach { a =>
+      logger.info (s"${a}")
+    }
+
+    compareCTD (words.collect (), ctd)
+  }
+
+  /**
+    * ChemicalName,ChemicalID,CasRN,DiseaseName,DiseaseID,DirectEvidence,InferenceGeneSymbol,InferenceScore,OmimIDs,PubMedIDs
+    * http://ctdbase.org/
+    * parse CTD
+    * find matching triples
+    * create perceptron training set
+    */
+  def compareCTD (words : Array[(String, String, String, Int)], ctd : RDD[String]) = {
+    ctd.filter { line =>
+      ! line.startsWith ("#")
+    }.map { line =>
+      line.split(",").map { elem => elem.trim }
+    }.map { tuple =>
+      ( tuple(0).toLowerCase ().replaceAll ("\"", ""),
+        tuple(3).toLowerCase ().replaceAll ("\"", "") )
+    }.flatMap { tuple =>
+      words.filter {  w => 
+        tuple._1.equals (w._1) && tuple._2.equals (w._3)
+      }
+    }.distinct().collect ().foreach { t =>
+      println (s" $t")
+    }
+
+  }
 }
 
 /***
  * An API for chemotext. Abstracts chemotext automation.
  */
 class PipelineContext (
+  sparkContext    : SparkContext,
   appHome         : String = "../data/pubmed",
   meshXML         : String = s"../data/pubmed/mesh/desc2016.xml",
   articleRootPath : String = s"../data/pubmed/articles")
-    extends Serializable 
 {
+  val sqlContext = new SQLContext(sparkContext)
+  import sqlContext.implicits._
+
   val logger = LoggerFactory.getLogger ("PipelineContext")
 
   def recursiveListFiles(f : File, r : Regex): Array[File] = {
@@ -181,6 +264,7 @@ class PipelineContext (
   def getFileList (articleRootDir : File, articleRegex : Regex) : Array[String] = {
     var fileList : Array[String] = null
     val fileListPath = "filelist.json"
+
     val json = JSONUtils.readJSON (fileListPath)
     if (json != null) {
       implicit val formats = DefaultFormats
@@ -190,40 +274,43 @@ class PipelineContext (
       JSONUtils.writeJSON (fileList, fileListPath)
       fileList
     }
+    /*
+    fileList = JSONUtils.readJSON2 (fileListPath)
+    if (fileList == null) {
+      fileList = recursiveListFiles (articleRootDir, articleRegex).map (_.getCanonicalPath)
+      JSONUtils.writeJSON (fileList, fileListPath)
+    }
+    fileList
+     */
   }
 
-  def analyzeDocuments (
-    appHome         : String,
-    articleRootPath : String,
-    meshXML         : String) =
-  {
+  def analyzeDocuments () = {
     val extendedMesh = "---"
     val articleRootDir = new File (articleRootPath)
     val articleRegex = new Regex (".*.fxml")
     val articleList = getFileList (articleRootDir, articleRegex)
 
-    var articles = Spark.ctx.parallelize (articleList).map { a =>
-      ( a, s"$meshXML" )
-    }.sample (false, 0.01).cache ()
+    val ctdPath = "../data/pubmed/ctd/CTD_chemicals_diseases.csv"
+    val ctd = sparkContext.textFile(ctdPath)
+    Processor.executeChemotextPipeline (sparkContext.parallelize (articleList), meshXML, ctd)
 
-    logger.info (s"Processing ${articles.count} articles")
-    val words = articles.flatMap { article =>
-      Processor.findTriples (article._1, article._2)
-    }.map { triple =>
-      ( triple, 1 )
-    }.reduceByKey (_ + _).map { tuple =>
-      ( tuple._1._1, tuple._1._2, tuple._1._3, tuple._2 )
-    }.sortBy (elem => -elem._4)
 
-    words.collect ().foreach { a =>
-      logger.info (s"${a}")
+    //val ctd = sqlContext.read.load("../data/pubmed/ctd/CTD_chemicals_diseases.csv").rdd
+    //val ctdRDD : RDD[Row] = ctd.rdd
+
+/*
+    triples.map { triple =>
+      ctd.map { ctdRec =>
+        println (s" $ctdRec")
+      }
     }
+ */
+
   }
 
   def execute () = {
     logger.info ("Searching documents for term relationships.")
-    val mesh = MeSHFactory.getMeSH (meshXML)
-    analyzeDocuments (appHome, articleRootPath, meshXML)
+    analyzeDocuments () //appHome, articleRootPath, meshXML)
   }
 }
 
