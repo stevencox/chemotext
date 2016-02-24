@@ -166,10 +166,25 @@ class MeSH (meshData : String = "") {
               if (elementName != null) {
                 val treeNumber = t
                 if (treeNumber.startsWith (protein_mesh_prefix)) {
+                  /*
+                  if (elementName.equals ("apoptosis")) {
+                    logger.info (s"-----------------> APOPTOSIS: $treeNumber")
+                  }
+                   */
                   addElement ("proteins", proteins, elementName)
                 } else if (treeNumber.startsWith (disease_mesh_prefix)) {
+                  /*
+                  if (elementName.equals ("apoptosis")) {
+                    logger.info (s"-----------------> APOPTOSIS: $treeNumber")
+                  }
+                   */
                   addElement ("diseases", diseases, elementName)
                 } else if (treeNumber.startsWith (chemical_mesh_prefix)) {
+                  /*
+                  if (elementName.equals ("apoptosis")) {
+                    logger.info (s"-----------------> APOPTOSIS: $treeNumber")
+                  }
+                   */
                   addElement ("chemicals", chemicals, elementName)
                 }
               }
