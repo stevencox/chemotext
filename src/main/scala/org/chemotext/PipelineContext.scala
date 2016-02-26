@@ -21,11 +21,6 @@ import org.deeplearning4j.models.word2vec.{ Word2Vec }
 import org.deeplearning4j.text.sentenceiterator.{ SentenceIterator, CollectionSentenceIterator }
 import org.deeplearning4j.text.tokenization.tokenizerfactory.DefaultTokenizerFactory
 import org.deeplearning4j.text.tokenization.tokenizer.Tokenizer
-import org.apache.spark.sql.DataFrame
-
-//import org.apache.spark.ml.classification.MultilayerPerceptronClassifier
-//import org.apache.spark.ml.evaluation.MulticlassClassificationEvaluator
-
 import org.apache.spark.mllib.classification.{LogisticRegressionWithLBFGS, LogisticRegressionModel}
 import org.apache.spark.mllib.evaluation.MulticlassMetrics
 import org.apache.spark.mllib.regression.LabeledPoint
@@ -49,6 +44,8 @@ object Processor {
 
   val logger = LoggerFactory.getLogger("Processor")
 
+  // http://codingjunkie.net/spark-combine-by-key/
+
   // checking a b c to verify they're really a b c
 
   // train this for whole set of docs
@@ -57,27 +54,15 @@ object Processor {
   //       average distance
   //       number of hits
 
-  def trainLogisticRegressionModel (trainingSet : RDD[LabeledPoint]) : LogisticRegressionModel = {
-    new LogisticRegressionWithLBFGS().run(trainingSet)
+  type WordPair = (String, String, Double, Double, Double)
+  type WordTriple = (String, String, String)
+  type WordPosition = (String, Int, Int, Int)
 
-    /*
-    // Compute raw scores on the test set.
-    val predictionAndLabels = test.map { case LabeledPoint(label, features) =>
-      val prediction = model.predict(features)
-      (prediction, label)
-    }
-     */
-  }
-
-  def findTriples (article : String, meshXML : String) 
-      : List[( String, String, String)] =
-  {
+  def findTriples (article : String, meshXML : String) : List[WordTriple] = {
     findTriples (findPairs (article, meshXML))
   }
 
-  def findTriples (pairs : List[List[(String, String, Double, Double, Double)]])
-      : List[( String, String, String)] =
-  {
+  def findTriples (pairs : List[List[WordPair]]) : List[WordTriple] = {
     var AB = pairs (0)
     var BC = pairs (1)
     logger.debug (s" Finding triples in AB/BC pair lists ${AB.length}/${BC.length} long")
@@ -93,6 +78,8 @@ object Processor {
       item._1 != null
     }
   }
+
+/* RDD.cogroup() instead.
 
   def findProbTriples (
     AB : Array[(String, String, Double)],
@@ -112,19 +99,16 @@ object Processor {
       item._1 != null
     }
   }
+ */
 
   /**
     * Derive A->B, B->C, A->C relationships from raw word positions
     */
-  def findPairs (article : String, meshXML : String) 
-      : List[List[(String, String, Double, Double, Double)]] = 
-  {
+  def findPairs (article : String, meshXML : String) : List[List[WordPair]] = {
     findPairs (quantifyArticle (article, meshXML))
   }
 
-  def findPairs (words : List[List[(String, Int, Int, Int)]]) 
-      : List[List[(String, String, Double, Double, Double)]] = 
-  {
+  def findPairs (words : List[List[WordPosition]]) : List[List[WordPair]] = {
     val threshold = 100
     List (
       findCooccurring (words (0), words (1), threshold), // AB
@@ -136,12 +120,7 @@ object Processor {
   /**
     * Determine pairs based on distance and include an confidence score 
     */
-  def findCooccurring (
-    L         : List[(String, Int, Int, Int)],
-    R         : List[(String, Int, Int, Int)],
-    threshold : Int)
-      : List[(String, String, Double, Double, Double)] =
-  {
+  def findCooccurring (L : List[WordPosition], R : List[WordPosition], threshold : Int) : List[WordPair] = {
     L.flatMap { left =>
       R.map { right =>
         val docPosDifference = math.abs (left._2 - right._2).toDouble
@@ -165,12 +144,10 @@ object Processor {
     * Quantify an article, searching for words and producing an output 
     * vector showing locations of A, B, and C terms in the text.
     */ 
-  def quantifyArticle (article : String, meshXML : String) 
-      : List[List[(String, Int, Int, Int)]] =
-  {
-    var A : List[(String, Int, Int, Int)] = List ()
-    var B : List[(String, Int, Int, Int)] = List ()
-    var C : List[(String, Int, Int, Int)] = List ()
+  def quantifyArticle (article : String, meshXML : String) : List[List[WordPosition]] = {
+    var A : List[WordPosition] = List ()
+    var B : List[WordPosition] = List ()
+    var C : List[WordPosition] = List ()
     val mesh = MeSHFactory.getMeSH (meshXML)
     logger.info (s"@-article: ${article}")
     var docPos = 0
@@ -199,11 +176,11 @@ object Processor {
     * Record locations of words within the document.
     */
   def getDocWords (words : Array[String], text : Array[String], docPos : Int, paraPos : Int, sentPos : Int) :
-      List[(String, Int, Int, Int)] =
+      List[WordPosition] =
   {
     var textPos = 0
     var sentenceIndex = 0
-    var result : ListBuffer[(String, Int, Int, Int)] = ListBuffer ()
+    var result : ListBuffer[WordPosition] = ListBuffer ()
     if (words != null && text != null) {
       text.foreach { sentence =>
         words.foreach { word =>
@@ -285,7 +262,7 @@ object Processor {
     }.distinct().cache ()
 
     logger.info ("== Calculating log regression model.")
-    val LogRM = trainLogisticRegressionModel (
+    val LogRM = new LogisticRegressionWithLBFGS().run(
       abBinaries.union (bcBinaries).map { item =>
         new LabeledPoint (
           label    = 1,
@@ -294,26 +271,45 @@ object Processor {
       })
 
     logger.info ("== Use LogRM to associate probabilities with each binary.")
-    val abWithProb = abBinaries.map { binary =>
+    val abProb = abBinaries.map { binary =>
       ( binary._1, binary._2,
         LogRM.predict (new DenseVector (Array ( binary._3, binary._4, binary._5 ))) )
     }.distinct().cache ()
-    abWithProb.collect().foreach { item =>
+    abProb.collect().foreach { item =>
       logger.info (s"AB with prob: $item")
     }
 
-    val bcWithProb = bcBinaries.map { binary =>
+    val bcProb = bcBinaries.map { binary =>
       ( binary._1, binary._2,
         LogRM.predict (new DenseVector (Array ( binary._3, binary._4, binary._5 ))) )
     }.distinct().cache ()
-    bcWithProb.collect ().foreach { item =>
+    bcProb.collect ().foreach { item =>
       logger.info (s"BC with prob: $item")
     }
 
     logger.info ("== Hypotheses:")
-    findProbTriples (abWithProb.collect (), bcWithProb.collect ()).foreach { triple =>
+    val join = abProb.map { i =>
+      (i._2, (i._1, i._3, 1 ))
+    }.cogroup (
+      bcProb.map { j =>
+        (j._1, (j._2, j._3, 2 ))
+      }
+    ).cache ()
+
+    join.collect().foreach { t =>
+      logger.info (s"join > $t")
+    }
+
+    join.flatMap { m =>
+      m._2._1.flatMap { n =>
+        m._2._2.map { p =>
+          (n._1, m._1, p._1, n._2 * p._2 )
+        }
+      }
+    }.cache ().foreach { triple =>
       logger.info (s"hypothesis => $triple")
     }
+
 
   }
 
