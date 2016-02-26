@@ -6,6 +6,7 @@ import java.io.PrintWriter
 import java.io.BufferedWriter
 import java.io.IOException
 import java.io.FileWriter
+import java.nio.file.{Paths, Files}
 
 import org.apache.spark.SparkConf
 import org.apache.spark.SparkContext
@@ -29,6 +30,7 @@ import scala.collection.mutable.ListBuffer
 import scala.compat.Platform
 import scala.util.matching.Regex
 import scala.xml.XML
+import org.xml.sax.SAXParseException
 
 /***
  * Processor for searching articles for terms.
@@ -43,15 +45,25 @@ object Processor {
   type WordTriple = (String, String, String)
   type WordPosition = (String, Int, Int, Int)
 
+  /**
+    * Create a concatenated corpus of all of PubMed Central
+    */
   def createCorpus (articles : Array[String], corpus : String) = {
     var out : PrintWriter = null
     try {
+      logger.info ("Creating PMC text corpus")
       out = new PrintWriter (new BufferedWriter (new FileWriter (corpus)))
       articles.foreach { article =>
-        val xml = XML.loadFile (article)
-        val paragraphs = (xml \\ "p")
-        paragraphs.foreach { paragraph =>
-          out.println (paragraph)
+        logger.info (s"adding $article")
+        try {
+          val xml = XML.loadFile (article)
+          val paragraphs = (xml \\ "p")
+          paragraphs.foreach { paragraph =>
+            out.println (paragraph.text)
+          }
+        } catch {
+          case e: SAXParseException =>
+            logger.error (s"Failed to parse $article")
         }
       }
     } catch {
@@ -62,6 +74,9 @@ object Processor {
     }
   }
 
+  /**
+    * Calculate the vector space of the corpus as a word2vec model
+    */
   def vectorizeCorpus (corpus : RDD[List[String]]) : Word2VecModel = {
     val word2vec = new Word2Vec()
     word2vec.fit (corpus)
@@ -357,20 +372,27 @@ class PipelineContext (
       JSONUtils.writeJSON (fileList, fileListPath)
       fileList
     }
-    /*
-    fileList = JSONUtils.readJSON2 (fileListPath)
-    if (fileList == null) {
-      fileList = recursiveListFiles (articleRootDir, articleRegex).map (_.getCanonicalPath)
-      JSONUtils.writeJSON (fileList, fileListPath)
-    }
-    fileList
-     */
   }
 
   def execute () = {
     val articleRootDir = new File (articleRootPath)
     val articleRegex = new Regex (".*.fxml")
     val articleList = getFileList (articleRootDir, articleRegex)
+
+    val corpusPath = "pmc_corpus.txt"
+    val vectorModelPath = "pmc_w2v.model"
+
+    var model : Word2VecModel = null
+    if (Files.exists(Paths.get(vectorModelPath))) {
+      model = Word2VecModel.load(sparkContext, vectorModelPath)
+    } else {
+      if (! Files.exists (Path.get (corpusPath))) {
+        Processor.createCorpus (articleList, corpusPath)
+      }
+      val words = sparkContext.textFile (corpusPath).map { e => e.split (" ").toList }
+      model = Processor.vectorizeCorpus (words)
+      model.save(sparkContext, vectorModelPath)
+    }
 
     Processor.executeChemotextPipeline (
       articlePaths = sparkContext.parallelize (articleList),
@@ -379,5 +401,32 @@ class PipelineContext (
       sampleSize   = sampleSize.toDouble)
   }
 
+}
+
+object PipelineApp {
+
+  val logger = LoggerFactory.getLogger ("PipelineApp")
+
+  def main(args: Array[String]) {
+
+    val appName = args(0)
+    val appHome = args(1)
+    val articleRootPath = args(2)
+    val meshXML = args(3)
+    val sampleSize = args(4)
+    val ctdPath = args(5)
+
+    logger.info (s"appName: $appName")
+    logger.info (s"appHome: $appHome")
+    logger.info (s"articleRootPath: $articleRootPath")
+    logger.info (s"meshXML: $meshXML")
+    logger.info (s"sampleSize: $sampleSize")
+    logger.info (s"ctdPath: $ctdPath")
+
+    val conf = new SparkConf().setAppName(appName)
+    val sc = new SparkContext(conf)
+    val pipeline = new PipelineContext (sc, appHome, meshXML, articleRootPath, ctdPath, sampleSize)
+    pipeline.execute ()    
+  }
 }
 

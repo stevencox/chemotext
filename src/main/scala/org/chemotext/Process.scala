@@ -132,6 +132,7 @@ class ProcessAnalytic extends ProcessBase {
 
     } catch {
       case e @ (_ : RuntimeException | _ : java.io.IOException) => println(e.getMessage ())
+      e.printStackTrace ()
       logger.error (e.getMessage ())
     }
 

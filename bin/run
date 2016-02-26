@@ -1,6 +1,12 @@
 #!/bin/bash
 
-export SPARK_HOME=$PWD/../spark/current    
+
+source /projects/stars/app/evry/conf/env.sh
+source /projects/stars/stack/spark/current/conf/spark-env.sh
+echo $SPARK_HOME
+cd /projects/stars/app/chemotext
+
+#export SPARK_HOME=$PWD/../spark/current    
 sparkJar=$(find $SPARK_HOME/lib/ -name "*assembly*.jar" -print)
 appJar=$(find $PWD -name "*assembly*.jar" -print | grep scala | tr '\n' ':' )
 export CLASSPATH="$SPARK_HOME/conf:$sparkJar:$appJar:$PWD/target"
