@@ -1,39 +1,34 @@
 package org.chemotext
 
+import java.io.File
+
+import java.io.PrintWriter
+import java.io.BufferedWriter
+import java.io.IOException
+import java.io.FileWriter
+
 import org.apache.spark.SparkConf
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkContext._
 import org.apache.spark.rdd.RDD
-import org.apache.spark.graphx._
+import org.apache.spark.mllib.classification.{LogisticRegressionWithLBFGS, LogisticRegressionModel}
+import org.apache.spark.mllib.evaluation.MulticlassMetrics
+import org.apache.spark.mllib.feature.{Word2Vec, Word2VecModel}
+import org.apache.spark.mllib.linalg.Vector
+import org.apache.spark.mllib.linalg.DenseVector
+import org.apache.spark.mllib.regression.LabeledPoint
+import org.apache.spark.mllib.util.MLUtils
+import org.json4s._
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.mutable.HashMap
 import scala.collection.immutable.HashMap
 import scala.collection.JavaConversions._
 import scala.collection.mutable.ListBuffer
 import scala.compat.Platform
-import org.slf4j.Logger
-import org.slf4j.LoggerFactory
-import java.io.File
 import scala.util.matching.Regex
 import scala.xml.XML
-import org.json4s._
-import org.deeplearning4j.models.word2vec.{ Word2Vec }
-import org.deeplearning4j.text.sentenceiterator.{ SentenceIterator, CollectionSentenceIterator }
-import org.deeplearning4j.text.tokenization.tokenizerfactory.DefaultTokenizerFactory
-import org.deeplearning4j.text.tokenization.tokenizer.Tokenizer
-import org.apache.spark.mllib.classification.{LogisticRegressionWithLBFGS, LogisticRegressionModel}
-import org.apache.spark.mllib.evaluation.MulticlassMetrics
-import org.apache.spark.mllib.regression.LabeledPoint
-import org.apache.spark.mllib.linalg.Vector
-import org.apache.spark.mllib.linalg.DenseVector
-import org.apache.spark.mllib.util.MLUtils
-
-
-/*
-object Spark {
-  val ctx = new SparkContext(new SparkConf().setAppName("test").setMaster("local[*]"))
-}
- */
 
 /***
  * Processor for searching articles for terms.
@@ -44,19 +39,33 @@ object Processor {
 
   val logger = LoggerFactory.getLogger("Processor")
 
-  // http://codingjunkie.net/spark-combine-by-key/
-
-  // checking a b c to verify they're really a b c
-
-  // train this for whole set of docs
-  //    logistic regression
-  //       shortest distance
-  //       average distance
-  //       number of hits
-
   type WordPair = (String, String, Double, Double, Double)
   type WordTriple = (String, String, String)
   type WordPosition = (String, Int, Int, Int)
+
+  def createCorpus (articles : Array[String], corpus : String) = {
+    var out : PrintWriter = null
+    try {
+      out = new PrintWriter (new BufferedWriter (new FileWriter (corpus)))
+      articles.foreach { article =>
+        val xml = XML.loadFile (article)
+        val paragraphs = (xml \\ "p")
+        paragraphs.foreach { paragraph =>
+          out.println (paragraph)
+        }
+      }
+    } catch {
+      case e: IOException =>
+        logger.error (s"Error reading file: $e")
+    } finally {
+      out.close ()
+    }
+  }
+
+  def vectorizeCorpus (corpus : RDD[List[String]]) : Word2VecModel = {
+    val word2vec = new Word2Vec()
+    word2vec.fit (corpus)
+  }
 
   def findTriples (article : String, meshXML : String) : List[WordTriple] = {
     findTriples (findPairs (article, meshXML))
@@ -78,28 +87,6 @@ object Processor {
       item._1 != null
     }
   }
-
-/* RDD.cogroup() instead.
-
-  def findProbTriples (
-    AB : Array[(String, String, Double)],
-    BC : Array[(String, String, Double)])
-      : Array[( String, String, String, Double)] =
-  {
-    logger.debug (s" Finding triples in AB/BC pair lists ${AB.length}/${BC.length} long")
-    AB.flatMap { ab =>
-      BC.map { bc =>
-        if (ab._2.equals (bc._1)) {
-          ( ab._1, ab._2, bc._2, ab._3 * bc._3 )
-        } else {
-          ( null, null, null, 0.0 )
-        }
-      }
-    }.filter { item =>
-      item._1 != null
-    }
-  }
- */
 
   /**
     * Derive A->B, B->C, A->C relationships from raw word positions
@@ -310,7 +297,6 @@ object Processor {
       logger.info (s"hypothesis => $triple")
     }
 
-
   }
 
   /**
@@ -392,5 +378,6 @@ class PipelineContext (
       ctd          = sparkContext.textFile(ctdPath),
       sampleSize   = sampleSize.toDouble)
   }
+
 }
 
