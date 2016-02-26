@@ -1,13 +1,11 @@
 package org.chemotext
 
 import java.io.File
-
 import java.io.PrintWriter
 import java.io.BufferedWriter
 import java.io.IOException
 import java.io.FileWriter
 import java.nio.file.{Paths, Files}
-
 import org.apache.spark.SparkConf
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkContext._
@@ -386,7 +384,7 @@ class PipelineContext (
     if (Files.exists(Paths.get(vectorModelPath))) {
       model = Word2VecModel.load(sparkContext, vectorModelPath)
     } else {
-      if (! Files.exists (Path.get (corpusPath))) {
+      if (! Files.exists (Paths.get (corpusPath))) {
         Processor.createCorpus (articleList, corpusPath)
       }
       val words = sparkContext.textFile (corpusPath).map { e => e.split (" ").toList }
