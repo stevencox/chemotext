@@ -28,13 +28,6 @@ import org.apache.spark.mllib.linalg.Vector
 import org.apache.spark.mllib.linalg.DenseVector
 import org.apache.spark.mllib.util.MLUtils
 
-
-/*
-object Spark {
-  val ctx = new SparkContext(new SparkConf().setAppName("test").setMaster("local[*]"))
-}
- */
-
 /***
  * Processor for searching articles for terms.
  * Implemented as an object to interoperate with
@@ -391,6 +384,33 @@ class PipelineContext (
       meshXML      = meshXML,
       ctd          = sparkContext.textFile(ctdPath),
       sampleSize   = sampleSize.toDouble)
+  }
+}
+
+object PipelineApp {
+
+  val logger = LoggerFactory.getLogger ("PipelineApp")
+
+  def main(args: Array[String]) {
+
+    val appName = args(0)
+    val appHome = args(1)
+    val articleRootPath = args(2)
+    val meshXML = args(3)
+    val sampleSize = args(4)
+    val ctdPath = args(5)
+
+    logger.info (s"appName: $appName")
+    logger.info (s"appHome: $appHome")
+    logger.info (s"articleRootPath: $articleRootPath")
+    logger.info (s"meshXML: $meshXML")
+    logger.info (s"sampleSize: $sampleSize")
+    logger.info (s"ctdPath: $ctdPath")
+
+    val conf = new SparkConf().setAppName(appName)
+    val sc = new SparkContext(conf)
+    val pipeline = new PipelineContext (sc, appHome, meshXML, articleRootPath, ctdPath, sampleSize)
+    pipeline.execute ()    
   }
 }
 
