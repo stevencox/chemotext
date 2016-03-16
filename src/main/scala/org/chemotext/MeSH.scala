@@ -31,61 +31,61 @@ import scala.xml.XML
 import scala.xml.factory.XMLLoader
 import scala.xml.pull._
 
-case class MeSHVocab (categories : List[ (String, Array[String]) ]);
+case class Vocabulary (
+  A : List[String],
+  B : List[String],
+  C : List[String],
+  extended : Boolean = false);
 
-object MeSHFactory {
+object VocabFactory {
 
-  var meshCache : MeSH = null
-  val logger = LoggerFactory.getLogger("MeSHFactory")
+  var cache : Vocabulary = null
+  val defaultJsonPath = "vocabulary.json"
+  val logger = LoggerFactory.getLogger ("VocabFactory")
 
-  def getMeSH (data : String) : MeSH = {
-    if (meshCache == null) {
-      logger.info ("MeSH Factory cache miss.")
+  def getVocabulary (data : String) : Vocabulary = {
+    if (cache == null) {
+      logger.info ("VocabFactory cache miss.")
 
       // Read JSON
-      val jsonPath = "mesh.json"
-      meshCache = readJSON (jsonPath)
-      if (meshCache == null) {
+      cache = readJSON (defaultJsonPath)
+      if (cache == null) {
 
         // Parse XML
         val mesh = new MeSH (data)
         mesh.init ()
-        meshCache = mesh
+        cache = new Vocabulary (mesh.A.toList, mesh.B.toList, mesh.C.toList)
 
         // Write JSON
-        writeJSON (mesh, jsonPath)
+        writeJSON (cache, defaultJsonPath)
       }
     }
-    meshCache
+    cache
   }
 
   def readJSON (jsonPath : String) = {
     var mesh : MeSH = null
-    var meshVocab : MeSHVocab = null
+    var vocabulary : Vocabulary = null
     var json = JSONUtils.readJSON (jsonPath)
     if (json != null) {
       implicit val formats = DefaultFormats
-      meshVocab = json.extract [MeSHVocab]
+      vocabulary = json.extract [Vocabulary]
       mesh = new MeSH ()
-      logger.info (s"0 => ${meshVocab.categories(0)._1}")
-      logger.info (s"1 => ${meshVocab.categories(1)._1}")
-      logger.info (s"2 => ${meshVocab.categories(2)._1}")
-      mesh.chemicals = meshVocab.categories(0)._2.to[ArrayBuffer]
-      mesh.proteins = meshVocab.categories(1)._2.to[ArrayBuffer]
-      mesh.diseases = meshVocab.categories(2)._2.to[ArrayBuffer]
+      logger.info (s"vocab.A => ${vocabulary.A}")
+      logger.info (s"vocab.B => ${vocabulary.B}")
+      logger.info (s"vocab.C => ${vocabulary.C}")
     }
-    mesh
+    vocabulary
   }
 
-  def writeJSON (mesh : MeSH, jsonPath : String) = {
+  def writeJSON (vocab : Vocabulary) : Unit = {
+    writeJSON (vocab, defaultJsonPath)
+  }
+
+  def writeJSON (vocab : Vocabulary, jsonPath : String) : Unit = {
     val startTime = Platform.currentTime
     implicit val formats = Serialization.formats(NoTypeHints)
-    val meshVocab = new MeSHVocab (List (
-      ( "chemicals", mesh.chemicals.toArray ),
-      ( "proteins",  mesh.proteins.toArray ),
-      ( "diseases",  mesh.diseases.toArray )
-    ))
-    JSONUtils.writeJSON (meshVocab, jsonPath)
+    JSONUtils.writeJSON (vocab, jsonPath)
   }
 
 }
@@ -96,14 +96,13 @@ class MeSH (meshData : String = "") {
   val chemical_mesh_prefix = "D"
   val protein_mesh_prefix = "D12"
 
-  var chemicals = ArrayBuffer.empty[String]
-  var proteins = ArrayBuffer.empty[String]
-  var diseases = ArrayBuffer.empty[String]
+  var A = ArrayBuffer.empty[String]
+  var B = ArrayBuffer.empty[String]
+  var C = ArrayBuffer.empty[String]
 
-  val logger = LoggerFactory.getLogger("MeSH")
+  val logger = LoggerFactory.getLogger("MeSH Vocab")
 
   def init () = {
-    var vocab : MeSHVocab = null
     val startTime = Platform.currentTime
     if (meshData.endsWith (".xml")) {
       val xml = new XMLEventReader(Source.fromFile(meshData))
@@ -153,40 +152,25 @@ class MeSH (meshData : String = "") {
               inElementName = false
             }
           }
+
           case EvElemStart (_, "TreeNumber", _, _) => {
             inTreeNum = true
           }
           case EvElemEnd (_, "TreeNumber") => {
             inTreeNum = false
           }
+
           case EvText(t) => {
             if (inElementName) {
               elementName = t.trim ().toLowerCase ()
-            } else if (inTreeNum) {
-              if (elementName != null) {
-                val treeNumber = t
-                if (treeNumber.startsWith (protein_mesh_prefix)) {
-                  /*
-                  if (elementName.equals ("apoptosis")) {
-                    logger.info (s"-----------------> APOPTOSIS: $treeNumber")
-                  }
-                   */
-                  addElement ("proteins", proteins, elementName)
-                } else if (treeNumber.startsWith (disease_mesh_prefix)) {
-                  /*
-                  if (elementName.equals ("apoptosis")) {
-                    logger.info (s"-----------------> APOPTOSIS: $treeNumber")
-                  }
-                   */
-                  addElement ("diseases", diseases, elementName)
-                } else if (treeNumber.startsWith (chemical_mesh_prefix)) {
-                  /*
-                  if (elementName.equals ("apoptosis")) {
-                    logger.info (s"-----------------> APOPTOSIS: $treeNumber")
-                  }
-                   */
-                  addElement ("chemicals", chemicals, elementName)
-                }
+            } else if (inTreeNum && elementName != null) {
+              val treeNumber = t
+              if (treeNumber.startsWith (protein_mesh_prefix)) {
+                addElement ("proteins", B, elementName, treeNumber)
+              } else if (treeNumber.startsWith (chemical_mesh_prefix)) {
+                addElement ("chemicals", A, elementName, treeNumber)
+              } else if (treeNumber.startsWith (disease_mesh_prefix)) {
+                addElement ("diseases", C, elementName, treeNumber)
               }
             }
           }
@@ -195,23 +179,149 @@ class MeSH (meshData : String = "") {
           }
         }
       }
+      // Minimize disease names that occur in the B list by subtracting 
+      // the B intersection with C
+      B = B.diff (B.intersect (C))
     }
     val endTime = Platform.currentTime
     logger.info (s"""
-Loaded ${chemicals.size} chemicals 
-       ${proteins.size} proteins and 
-       ${diseases.size} diseases in ${(endTime - startTime) / 1000} seconds.""")
+Loaded ${A.size} chemicals 
+       ${B.size} proteins and 
+       ${C.size} diseases in ${(endTime - startTime) / 1000} seconds.""")
   }
 
-  def addElement (typeName : String, buffer : ArrayBuffer[String], elementName : String) = {
+  def addElement (
+    typeName : String,
+    buffer : ArrayBuffer[String],
+    elementName : String,
+    treeNumber : String) =
+  {
+    if (elementName.equals ("apoptosis")) {
+      logger.info (s"-----------------> APOPTOSIS: $treeNumber")
+    }
     if (! buffer.contains (elementName)) {
       buffer += elementName
-      logger.debug (s"adding $elementName of type $typeName")
+      logger.debug (s"adding $typeName: $elementName, TreeNumber: $treeNumber")
     }
   }
 
-  def getChemicals () = { chemicals }
-  def getProteins () = { proteins }
-  def getDiseases () = { diseases }
+  def generateValidatedABList (ctdAB : String, supplementalDataFile : String) = {
+    var in : BufferedReader = null
+    try {
+      val data = new StringBuilder ()
+      in = new BufferedReader (new FileReader (ctdAB), 4096)
+      var line = in.readLine ()
+      while (line != null) {
+        data.append (line)
+        line = in.readLine ()
+      }
+    } catch {
+      case e: IOException =>
+        logger.error (s"Error reading json $e")
+        in.close ()
+    } finally {
+      in.close ()
+    }
+  }
+
+  def parseSupplementalDataFile (supplementalDataFile : String, outputFile : String) = {
+    val startTime = Platform.currentTime
+    val xml = new XMLEventReader(Source.fromFile(supplementalDataFile))
+    var out : PrintWriter = null
+    try {
+      out = new PrintWriter(new BufferedWriter (new FileWriter (outputFile)))
+
+      var inDescriptorName = false
+      var inString = false
+      var inRecordUI = false
+      var inSupRecordName = false
+
+      var recordUI : String = null
+      var supplementalRecordName : String = null
+      var descriptorName : String = null
+
+      for (event <- xml) {
+        event match {
+
+          case EvElemStart(_, "SupplementalRecordUI", _, _) => {
+            inRecordUI = true
+          }
+          case EvElemEnd(_, "SupplementalRecordUI") => {
+            inRecordUI = false
+          }
+
+          case EvElemStart(_, "SupplementalRecordName", _, _) => {
+            inSupRecordName = true
+          }
+          case EvElemEnd(_, "SupplementalRecordName") => {
+            inSupRecordName = false
+          }
+
+          case EvElemStart(_, "DescriptorName", _, _) => {
+            inDescriptorName = true
+          }
+          case EvElemEnd(_, "DescriptorName") => {
+            inDescriptorName = false
+          }
+
+          case EvElemStart(_, "String", _, _) => {
+            inString = true
+          }
+          case EvElemEnd(_, "String") => {
+            inString = false
+          }
+
+          case EvText(text) => {
+            if (inRecordUI) {
+              recordUI = text.trim ()
+            } else if (inSupRecordName) {
+              supplementalRecordName = text.trim ().toLowerCase ()
+            } else if (inDescriptorName) {
+              descriptorName = text.trim ().toLowerCase ()
+            }
+            out.println (s"descriptorName: $descriptorName ")
+          }
+
+
+
+/*
+
+         list of ( A -> B )
+            - SupplementalRecordUI - the code
+            - SupplementalRecordName/String - the name
+            - HeadingMappedToList/HeadingMappedTo/DescriptorReferredTo/ (DescriptorName/String)
+            - DescriptorUI
+
+
+
+        case EvElemStart(_, "DescriptorName", _, _) => {
+          inDescriptor = true
+        }
+        case EvElemEnd(_, "DescriptorName") => {
+          inDescriptor = false
+        }
+
+        case EvElemStart(_, "String", _, _) => {
+          if (inDescriptor)
+            inString = true
+        }
+        case EvElemEnd(_, "String") => {
+          if (inDescriptor)
+            inString = false
+        }
+ */
+
+      }
+    }
+
+    } catch {
+      case e : IOException =>
+        logger.error (s"Error writing validated A->B list: $e")
+        out.close ()
+    } finally {
+      out.close ()
+    }
+
+  }
 
 }

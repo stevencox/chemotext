@@ -91,6 +91,7 @@ object Processor {
     AB.flatMap { ab =>
       BC.map { bc =>
         if (ab._2.equals (bc._1)) {
+          logger.debug (s" ab/bc => ${ab._1} ${ab._2} ${bc._1} ${bc._2}")
           ( ab._1, ab._2, bc._2 )
         } else {
           ( null, null, null )
@@ -148,7 +149,11 @@ object Processor {
     var A : List[WordPosition] = List ()
     var B : List[WordPosition] = List ()
     var C : List[WordPosition] = List ()
-    val mesh = MeSHFactory.getMeSH (meshXML)
+    val vocab = VocabFactory.getVocabulary (meshXML)
+    logger.debug (s"""Sample vocab:
+         A-> ${vocab.A.slice (1, 20)}
+         B-> ${vocab.B.slice (1, 20)}
+         C-> ${vocab.C.slice (1, 20)}""")
     logger.info (s"@-article: ${article}")
     var docPos = 0
     var paraPos = 0
@@ -158,25 +163,30 @@ object Processor {
       val paragraphs = (xml \\ "p")
       paragraphs.foreach { paragraph =>
         val text = paragraph.text.split ("(?i)(?<=[.?!])\\S+(?=[a-z])").map (_.toLowerCase)
-        A = A.union (getDocWords (mesh.chemicals.toArray, text, docPos, paraPos, sentPos))
-        B = B.union (getDocWords (mesh.proteins.toArray, text, docPos, paraPos, sentPos))
-        C = C.union (getDocWords (mesh.diseases.toArray, text, docPos, paraPos, sentPos))
+        A = A.union (getDocWords (vocab.A.toArray, text, docPos, paraPos, sentPos))
+        B = B.union (getDocWords (vocab.B.toArray, text, docPos, paraPos, sentPos))
+        C = C.union (getDocWords (vocab.C.toArray, text, docPos, paraPos, sentPos))
         sentPos += text.size
         docPos += paragraph.text.length
         paraPos += 1
       }
     } catch {
-        case e: Exception =>
-          logger.error (s"Error reading json $e")
+      case e: Exception =>
+        logger.error (s"Error reading json $e")
     }
+    logger.debug (s"B: ===> $B")
     List (A, B, C)
   }
 
   /**
     * Record locations of words within the document.
     */
-  def getDocWords (words : Array[String], text : Array[String], docPos : Int, paraPos : Int, sentPos : Int) :
-      List[WordPosition] =
+  def getDocWords (
+    words   : Array[String],
+    text    : Array[String],
+    docPos  : Int,
+    paraPos : Int,
+    sentPos : Int) : List[WordPosition] =
   {
     var textPos = 0
     var sentenceIndex = 0
@@ -202,15 +212,58 @@ object Processor {
     result.toList
   }
 
-  def executeChemotextPipeline (articlePaths : RDD[String], meshXML : String, ctd : RDD[String], sampleSize : Double) = {
+  /**
+    * Prep vocabulary terms by lower casing, removing non alpha strings and other dross.
+    */
+  def getDistinctAlpha (terms : RDD[String]) : List[String] = {
+    terms.filter { text =>
+      val lower = text.replaceAll("-", "")
+      ! (lower forall Character.isDigit) && lower.length > 1
+    }.map { text =>
+      text.toLowerCase ()
+    }.distinct().collect ().toList
+  }
+
+  def executeChemotextPipeline (
+    articlePaths : RDD[String],
+    meshXML      : String,
+    ctdAC        : RDD[Array[String]],
+    ctdAB        : RDD[Array[String]],
+    ctdBC        : RDD[Array[String]],
+    sampleSize   : Double) =
+  {
+
+    logger.info ("Checking vocabulary...")
+    val vocab = VocabFactory.getVocabulary (meshXML)
+    if (! vocab.extended) {
+      logger.info ("Extending basic (MeSH) vocabulary with terms from CTD...")
+      // AB -> _1, _4
+      // BC -> _1, _3
+      // AC -> _1, _4
+      val AB = ctdAB.map { row => ( row(0), row(3) ) }
+      val BC = ctdBC.map { row => ( row(0), row(2) ) }
+      val AC = ctdAC.map { row => ( row(0), row(3) ) }
+      VocabFactory.writeJSON (new Vocabulary (
+        List.concat (vocab.A, getDistinctAlpha (AB.map { e => e._1 })),
+        vocab.B :::
+          getDistinctAlpha (AB.map { e => e._2 }) :::
+          getDistinctAlpha (BC.map { e => e._1 }),
+        List.concat (vocab.C, getDistinctAlpha (AC.map { e => e._2 })),
+        true),
+        "vocab_new.json")
+    }
 
     logger.info ("== Analyze articles; calculate binaries.")
     val binaries = articlePaths.map { a =>
       ( a, s"$meshXML" )
     }.sample (false, sampleSize).map { article =>
+
       Processor.quantifyArticle (article._1, article._2)
     }.map { item =>
       Processor.findPairs (item)
+
+/*      Processor.findPairs (article._1, article._2)
+ */
     }.cache ()
 
     logger.info ("== Calculate triples.")
@@ -226,8 +279,9 @@ object Processor {
       logger.info (s"triple :-- ${a}")
     }
 
+    
     logger.info ("== Get known triples from CTD.")
-    val knownTriples = getKnownTriples (triples.collect (), ctd).collect ()
+    val knownTriples = getKnownTriples (triples.collect (), ctdAC).collect ()
 
     knownTriples.foreach { a =>
       logger.info (s"known-triple :-- ${a}")
@@ -262,8 +316,14 @@ object Processor {
     }.distinct().cache ()
 
     logger.info ("== Calculating log regression model.")
+
+
+    val abUnionBcBinaries = abBinaries.union (bcBinaries)
+
+    logger.info (s" AB/union/BC -> ${abUnionBcBinaries.count ()}")
     val LogRM = new LogisticRegressionWithLBFGS().run(
-      abBinaries.union (bcBinaries).map { item =>
+      //abBinaries.union (bcBinaries).map { item =>
+      abUnionBcBinaries.map { item =>
         new LabeledPoint (
           label    = 1,
           features = new DenseVector (Array( item._3, item._4, item._5 ))
@@ -319,14 +379,10 @@ object Processor {
     * find matching triples
     * create perceptron training set
     */
-  def getKnownTriples (triples : Array[(String, String, String, Int)], ctd : RDD[String])
+  def getKnownTriples (triples : Array[(String, String, String, Int)], ctd : RDD[Array[String]])
       : RDD[( String, String, String, Int )] =
   {
-    ctd.filter { line =>
-      ! line.startsWith ("#")
-    }.map { line =>
-      line.split(",").map { elem => elem.trim }
-    }.map { tuple =>
+    ctd.map { tuple =>
       ( tuple(0).toLowerCase ().replaceAll ("\"", ""),
         tuple(3).toLowerCase ().replaceAll ("\"", "") )
     }.flatMap { tuple =>
@@ -334,6 +390,16 @@ object Processor {
         tuple._1.equals (w._1) && tuple._2.equals (w._3)
       }
     }.distinct().cache ()
+  }
+
+  def getTSVRecords (rdd : RDD[String]) : RDD[Array[String]] = {
+    rdd.filter { line =>
+      ! line.startsWith ("#")
+    }.map { line =>
+      line.split(",").map { elem =>
+        elem.trim.replaceAll ("\"", "")
+      }
+    }
   }
 
 }
@@ -346,7 +412,9 @@ class PipelineContext (
   appHome         : String = "../data/pubmed",
   meshXML         : String = "../data/pubmed/mesh/desc2016.xml",
   articleRootPath : String = "../data/pubmed/articles",
-  ctdPath         : String = "../data/pubmed/ctd/CTD_chemicals_diseases.csv",
+  ctdACPath       : String = "../data/pubmed/ctd/CTD_chemicals_diseases.csv",
+  ctdABPath       : String = "../data/pubmed/ctd/CTD_chem_gene_ixns.csv",
+  ctdBCPath       : String = "../data/pubmed/ctd/CTD_genes_diseases.csv",
   sampleSize      : String = "0.01")
 {
   val logger = LoggerFactory.getLogger ("PipelineContext")
@@ -380,6 +448,7 @@ class PipelineContext (
     val corpusPath = "pmc_corpus.txt"
     val vectorModelPath = "pmc_w2v.model"
 
+    /*
     var model : Word2VecModel = null
     if (Files.exists(Paths.get(vectorModelPath))) {
       model = Word2VecModel.load(sparkContext, vectorModelPath)
@@ -391,11 +460,14 @@ class PipelineContext (
       model = Processor.vectorizeCorpus (words)
       model.save(sparkContext, vectorModelPath)
     }
+     */
 
     Processor.executeChemotextPipeline (
       articlePaths = sparkContext.parallelize (articleList),
       meshXML      = meshXML,
-      ctd          = sparkContext.textFile(ctdPath),
+      ctdAC        = Processor.getTSVRecords (sparkContext.textFile (ctdACPath)),
+      ctdAB        = Processor.getTSVRecords (sparkContext.textFile (ctdABPath)),
+      ctdBC        = Processor.getTSVRecords (sparkContext.textFile (ctdBCPath)),
       sampleSize   = sampleSize.toDouble)
   }
 
@@ -412,18 +484,30 @@ object PipelineApp {
     val articleRootPath = args(2)
     val meshXML = args(3)
     val sampleSize = args(4)
-    val ctdPath = args(5)
+    val ctdACPath = args(5)
+    val ctdABPath = args(6)
+    val ctdBCPath = args(7)
 
-    logger.info (s"appName: $appName")
-    logger.info (s"appHome: $appHome")
+    logger.info (s"appName        : $appName")
+    logger.info (s"appHome        : $appHome")
     logger.info (s"articleRootPath: $articleRootPath")
-    logger.info (s"meshXML: $meshXML")
-    logger.info (s"sampleSize: $sampleSize")
-    logger.info (s"ctdPath: $ctdPath")
+    logger.info (s"meshXML        : $meshXML")
+    logger.info (s"sampleSize     : $sampleSize")
+    logger.info (s"ctdACPath      : $ctdACPath")
+    logger.info (s"ctdABPath      : $ctdABPath")
+    logger.info (s"ctdBCPath      : $ctdBCPath")
 
     val conf = new SparkConf().setAppName(appName)
     val sc = new SparkContext(conf)
-    val pipeline = new PipelineContext (sc, appHome, meshXML, articleRootPath, ctdPath, sampleSize)
+    val pipeline = new PipelineContext (
+      sc,
+      appHome,
+      meshXML,
+      articleRootPath,
+      ctdACPath,
+      ctdABPath,
+      ctdBCPath,
+      sampleSize)
     pipeline.execute ()    
   }
 }
