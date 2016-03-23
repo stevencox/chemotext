@@ -1,0 +1,36 @@
+#!/bin/bash
+
+set +x
+
+STARS_HOME=/Users/scox/dev
+SPARK_HOME=$STARS_HOME/spark/current
+MESOS_MASTER=local[2]
+
+#source $STARS_HOME/app/evry/conf/env.sh
+APP_HOME=$STARS_HOME/chemotext
+PUBMEDC=$STARS_HOME/data/pubmed/articles
+MESHXML=$STARS_HOME/data/pubmed/mesh/desc2016_2.xml
+CTDACPATH=$STARS_HOME/data/pubmed/ctd/CTD_chemicals_diseases.csv
+CTDABPATH=$STARS_HOME/data/pubmed/ctd/CTD_chem_gene_ixns.csv
+CTDBCPATH=$STARS_HOME/data/pubmed/ctd/CTD_genes_diseases.csv
+SAMPLESIZE=0.001
+cd $APP_HOME
+
+$SPARK_HOME/bin/spark-submit \
+    --class "org.chemotext.PipelineApp" \
+    --master $MESOS_MASTER \
+    --executor-memory 10G \
+    --total-executor-cores 2 \
+    --num-executors 2  \
+    --driver-memory 10G \
+    --conf spark.task.cpus=1 \
+    --conf spark.default.parallelism=2 \
+    $(find $PWD -name "*assembly*.jar" -print | grep scala ) \
+    "Chemotext:Pipeline[Scala]" \
+    $APP_HOME \
+    $PUBMEDC \
+    $MESHXML \
+    $SAMPLESIZE \
+    $CTDACPATH \
+    $CTDABPATH \
+    $CTDBCPATH
