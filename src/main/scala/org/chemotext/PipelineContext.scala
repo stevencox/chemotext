@@ -55,10 +55,19 @@ object Processor {
 
   val logger = LoggerFactory.getLogger("Processor")
 
-  type WordPair = (String, String, Double, Double, Double, Int)
-  type WordTriple = (String, String, String)
-  type WordPosition = (String, Int, Int, Int)
-
+  case class Triple (
+    A : String,
+    B : String,
+    C : String
+  )
+  case class Binary (
+    L        : String,
+    R        : String,
+    docDist  : Double,
+    paraDist : Double,
+    sentDist : Double,
+    code     : Int
+  )
   case class WordFeature (
     word    : String,
     docPos  : Int,
@@ -69,14 +78,18 @@ object Processor {
     sentences : List[String]
   )
   case class QuantifiedArticle (
-    fileName  : String,
-    date      : String,
-    generator : String,
-    raw       : String,
-    sections  : List[Paragraph],
-    A         : List[WordFeature],
-    B         : List[WordFeature],
-    C         : List[WordFeature]
+    fileName   : String,
+    date       : String,
+    generator  : String,
+    raw        : String,
+    paragraphs : List[Paragraph],
+    A          : List[WordFeature],
+    B          : List[WordFeature],
+    C          : List[WordFeature],
+    AB         : List[Binary] = null,
+    BC         : List[Binary] = null,
+    AC         : List[Binary] = null,
+    ABC        : List[Triple] = null
   )
 
   /**
@@ -116,63 +129,77 @@ object Processor {
     word2vec.fit (corpus)
   }
 
-  def findTriples (article : String, meshXML : String) : List[WordTriple] = {
-    findTriples (findPairs (article, meshXML))
-  }
-
-  def findTriples (pairs : List[List[WordPair]]) : List[WordTriple] = {
-    var AB = pairs (0)
-    var BC = pairs (1)
-    logger.debug (s" Finding triples in AB/BC pair lists ${AB.length}/${BC.length} long")
-    AB.flatMap { ab =>
-      BC.map { bc =>
-        if (ab._2.equals (bc._1)) {
-          logger.debug (s" ab/bc => ${ab._1} ${ab._2} ${bc._1} ${bc._2}")
-          ( ab._1, ab._2, bc._2 )
+  def findTriples (article : QuantifiedArticle) : QuantifiedArticle = {
+    logger.debug (s" Finding triples in AB/BC pair lists ${article.AB.length}/${article.BC.length} long")
+    val ABC = article.AB.flatMap { ab =>
+      article.BC.map { bc =>
+        if (ab.R.equals (bc.L)) {
+          logger.debug (s" ab/bc => ${ab.L} ${ab.R} ${bc.L} ${bc.R}")
+          Triple ( ab.L, ab.R, bc.R )
         } else {
-          ( null, null, null )
+          Triple ( null, null, null )
         }
       }
     }.filter { item =>
-      item._1 != null
+      item.A != null
     }
+    val quantified = QuantifiedArticle (
+      fileName   = article.fileName,
+      date       = article.date,
+      generator  = article.generator,
+      raw        = article.raw,
+      paragraphs = article.paragraphs,
+      A          = article.A,
+      B          = article.B,
+      C          = article.C,
+      AB         = article.AB,
+      BC         = article.BC,
+      AC         = article.AC,
+      ABC        = ABC)
+
+    JSONUtils.writeJSON (quantified, "x/" + quantified.fileName + ".json")
+    quantified
   }
 
   /**
     * Derive A->B, B->C, A->C relationships from raw word positions
     */
-  def findPairs (article : String, meshXML : String) : List[List[WordPair]] = {
+  def findPairs (article : String, meshXML : String) : QuantifiedArticle = {
     findPairs (quantifyArticle (article, meshXML))
   }
 
-  def findPairs (article : QuantifiedArticle) : List[List[WordPair]] = {
-    JSONUtils.writeJSON (article, "x/" + article.fileName + ".json")
+  def findPairs (article : QuantifiedArticle) : QuantifiedArticle = {
     val threshold = 100
-    List (
-      findCooccurring (article.A, article.B, threshold, 1), // AB
-      findCooccurring (article.B, article.C, threshold, 2), // BC
-      findCooccurring (article.A, article.C, threshold, 3)  // AC
-    )
+    QuantifiedArticle (
+      fileName   = article.fileName,
+      date       = article.date,
+      generator  = article.generator,
+      raw        = article.raw,
+      paragraphs = article.paragraphs,
+      A          = article.A,
+      B          = article.B,
+      C          = article.C,
+      AB         = findCooccurring (article.A, article.B, threshold, 1), // AB,
+      BC         = findCooccurring (article.B, article.C, threshold, 2), // BC,
+      AC         = findCooccurring (article.A, article.C, threshold, 3))  // AC
   }
 
   /**
     * Determine pairs based on distance and include an confidence score 
     */
   def findCooccurring (
-    L : List[WordFeature],
-    R : List[WordFeature],
+    L         : List[WordFeature],
+    R         : List[WordFeature],
     threshold : Int,
     code      : Int)
-      : List[WordPair] = 
+      : List[Binary] = 
   {
     L.flatMap { left =>
       R.map { right =>
-
         logger.debug (s"cooccurring: $left._1 and $right._1 $code")
-
         val docPosDifference = math.abs (left.docPos - right.docPos).toDouble
         if ( docPosDifference < threshold && docPosDifference > 0 ) {
-          ( left.word,
+          new Binary ( left.word,
             right.word,
             docPosDifference,
             math.abs (left.paraPos - right.paraPos).toDouble,
@@ -180,11 +207,11 @@ object Processor {
             code
           )
         } else {
-          ( null, null, 0.0, 0.0, 0.0, 0 )
+          new Binary ( null, null, 0.0, 0.0, 0.0, 0 )
         }
       }
     }.filter { element =>
-      element._3 != 0
+      element.docDist != 0
     }
   }
 
@@ -231,15 +258,15 @@ object Processor {
       case e: Exception =>
         logger.error (s"Error reading json $e")
     }
-    new QuantifiedArticle (
-      fileName  = article.replaceAll (".*/", ""),
-      date      = new Date().toString (),
-      generator = "ChemoText2",
-      raw       = rawBuf.toString,
-      sections  = paraBuf.toList,
-      A         = A,
-      B         = B,
-      C         = C)
+    QuantifiedArticle (
+      fileName   = article.replaceAll (".*/", ""),
+      date       = new Date().toString (),
+      generator  = "ChemoText2",
+      raw        = rawBuf.toString,
+      paragraphs = paraBuf.toList,
+      A          = A,
+      B          = B,
+      C          = C)
   }
 
   def getSentences (text : String) = {
@@ -339,19 +366,6 @@ object Processor {
     }
   }
 
-  /*
-   * The approach below finds pairs only if they occur within an article.
-   * More cohesive, less hits, etc.
-   */
-  def generatePairs (articlePaths : RDD[String], meshXML : String, sampleSize : Double) = {
-    logger.info ("== Analyze articles; calculate binaries.")
-    articlePaths.map { a =>
-      ( a, meshXML )
-    }.sample (false, sampleSize, 1234).map { article =>
-      findPairs (article._1, article._2)
-    }.cache ()
-  }
-
   def formKey (a : String, b : String) : String = {
     s"$a-$b"
   }
@@ -363,7 +377,7 @@ object Processor {
   def joinBinaries (
     L : RDD[(String, String, Int)],
     R : RDD[(String, (Double, Double, Double, Int))]) :
-      RDD[WordPair] =
+      RDD[Binary] =
   {
     logger.info ("Joining binaries")
     val left = L.map { item =>
@@ -371,29 +385,29 @@ object Processor {
     }
     R.join (left).map { item =>
       val k = splitKey (item._1)
-      ( k(0), k(1), item._2._1._1, item._2._1._2, item._2._1._3, item._2._1._4 )
+      Binary ( k(0), k(1), item._2._1._1, item._2._1._2, item._2._1._3, item._2._1._4 )
     }.distinct().cache ()
   }
 
-  def trainLRM (samples : RDD[WordPair]) = {
+  def trainLRM (samples : RDD[Binary]) = {
     logger.info (s"Training LRM with ${samples.count} binaries")
     new LogisticRegressionWithLBFGS().run(
       samples.sample (false, 0.01, 1234).map { item =>
         new LabeledPoint (
           label    = 1,
-          features = new DenseVector (Array( item._3, item._4, item._5 ))
+          features = new DenseVector (Array( item.docDist, item.paraDist, item.sentDist ))
         )
       })
   }
 
   def modelProbabilities (
-    binaries: RDD[WordPair],
+    binaries: RDD[Binary],
     lrm : LogisticRegressionModel) =
   {
     logger.info ("== Use LogRM to associate probabilities with each binary.")
     val prob = binaries.map { binary =>
-      ( binary._1, binary._2,
-        lrm.predict (new DenseVector (Array ( binary._3, binary._4, binary._5 ))) )
+      ( binary.L, binary.R,
+        lrm.predict (new DenseVector (Array ( binary.docDist, binary.paraDist, binary.sentDist ))) )
     }.distinct().cache ()
     prob.collect().foreach { item =>
       logger.info (s"binaries with prob: $item")
@@ -463,25 +477,20 @@ object Processor {
  */
   }
 
-  def getFlatBinaries (binaries : RDD[List[List[WordPair]]]) 
-      : RDD[WordPair] =
-  {
-    logger.info ("== Label known binaries based on CTD binaries...")
+  def getFlatBinaries (binaries : RDD[QuantifiedArticle]) : RDD[Binary] = {
     binaries.flatMap { item =>
-      item
-    }.flatMap { item =>
-      item
+      item.AB.union (item.BC).union (item.AC)
     }.cache ()
   }
 
   def genHypothesesWithLRM (
-    binaries : RDD[List[List[WordPair]]],
+    binaries : RDD[QuantifiedArticle],
     AB       : RDD[(String, String, Int)],
     BC       : RDD[(String, String, Int)]
   ) = {
 
     val fb = getFlatBinaries (binaries).map { item =>
-      ( formKey (item._1, item._2), ( item._3, item._4, item._5, item._6 ))
+      ( formKey (item.L, item.R), ( item.docDist, item.paraDist, item.sentDist, item.code ))
     }.cache ()
 
     /*
@@ -521,14 +530,16 @@ object Processor {
 
   }
 
-  def calculateTriples (binaries : RDD[List[List[WordPair]]]) = {
+  def calculateTriples (articles : RDD[QuantifiedArticle]) = {
     logger.info ("== Calculate triples.")
-    val triples = binaries.flatMap { item =>
-      Processor.findTriples (item)
+    val triples = articles.map { article =>
+      Processor.findTriples (article)
+    }.flatMap { article =>
+      article.ABC
     }.map { triple =>
       ( triple, 1 )
     }.reduceByKey (_ + _).map { tuple =>
-      ( tuple._1._1, tuple._1._2, tuple._1._3, tuple._2 )
+      ( tuple._1.A, tuple._1.B, tuple._1.C, tuple._2 )
     }.distinct().sortBy (elem => -elem._4).cache ()
 
     triples.foreach { a =>
@@ -548,7 +559,7 @@ object Processor {
    * 
    */
   def evaluateBinaries (
-    binaries : RDD[List[List[WordPair]]],
+    articles : RDD[QuantifiedArticle],
     AB       : RDD[(String, String, Int)],
     BC       : RDD[(String, String, Int)],
     AC       : RDD[(String, String, Int)]
@@ -556,8 +567,8 @@ object Processor {
 
     logger.info ("Evaluate binaries")
 
-    val fb = getFlatBinaries (binaries).map { item =>
-      ( formKey (item._1, item._2), ( item._3, item._4, item._5, item._6 ))
+    val fb = getFlatBinaries (articles).map { item =>
+      ( formKey (item.L, item.R), ( item.docDist, item.paraDist, item.sentDist, item.code ))
     }.cache ()
 
     
@@ -599,6 +610,19 @@ object Processor {
     println (s"AB: predicted and in CTD: ")
   }
 
+  /*
+   * The approach below finds pairs only if they occur within an article.
+   * More cohesive, less hits, etc.
+   */
+  def generatePairs (articlePaths : RDD[String], meshXML : String, sampleSize : Double) = {
+    logger.info ("== Analyze articles; calculate binaries.")
+    articlePaths.map { a =>
+      ( a, meshXML )
+    }.sample (false, sampleSize, 1234).map { article =>
+      findPairs (article._1, article._2)
+    }.cache ()
+  }
+
   def executeChemotextPipeline (
     articlePaths : RDD[String],
     meshXML      : String,
@@ -615,11 +639,11 @@ object Processor {
       logger.debug (s"------------> $a")
     }
 
-    val binaries = generatePairs (articlePaths, meshXML, sampleSize)
+    val articles = generatePairs (articlePaths, meshXML, sampleSize)
 
-    evaluateBinaries (binaries, AB, BC, AC)
+    evaluateBinaries (articles, AB, BC, AC)
 
-    calculateTriples (binaries)
+    calculateTriples (articles)
 
     //genHypothesesWithLRM (binaries, AB, BC)
   }
