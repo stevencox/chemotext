@@ -3,17 +3,34 @@
 set +x
 
 STARS_HOME=/Users/scox/dev
+DATA_HOME=$STARS_HOME/chemotext/data
+
 SPARK_HOME=$STARS_HOME/spark/current
 MESOS_MASTER=local[2]
 
 #source $STARS_HOME/app/evry/conf/env.sh
 APP_HOME=$STARS_HOME/chemotext
-PUBMEDC=$STARS_HOME/data/pubmed/articles
-MESHXML=$STARS_HOME/data/pubmed/mesh/desc2016_2.xml
-CTDACPATH=$STARS_HOME/data/pubmed/ctd/CTD_chemicals_diseases.csv
-CTDABPATH=$STARS_HOME/data/pubmed/ctd/CTD_chem_gene_ixns.csv
-CTDBCPATH=$STARS_HOME/data/pubmed/ctd/CTD_genes_diseases.csv
-SAMPLESIZE=0.001
+
+p0 () {
+    PUBMEDC=$DATA_HOME/pubmed/articles
+    MESHXML=$DATA_HOME/pubmed/vocabulary/mesh/desc2016_2.xml
+    CTDACPATH=$DATA_HOME/ctd/CTD_chemicals_diseases.csv
+    CTDABPATH=$DATA_HOME/ctd/CTD_chem_gene_ixns.csv
+    CTDBCPATH=$DATA_HOME/ctd/CTD_genes_diseases.csv
+    SAMPLESIZE=1
+}
+
+p1 () {
+    PUBMEDC=$STARS_HOME/data/pubmed/articles
+    MESHXML=$STARS_HOME/data/pubmed/mesh/desc2016_2.xml
+    CTDACPATH=$STARS_HOME/data/pubmed/ctd/CTD_chemicals_diseases.csv
+    CTDABPATH=$STARS_HOME/data/pubmed/ctd/CTD_chem_gene_ixns.csv
+    CTDBCPATH=$STARS_HOME/data/pubmed/ctd/CTD_genes_diseases.csv
+    SAMPLESIZE=0.001
+}
+
+p1
+
 cd $APP_HOME
 
 $SPARK_HOME/bin/spark-submit \

@@ -29,6 +29,22 @@ import scala.compat.Platform
 import scala.util.matching.Regex
 import scala.xml.XML
 import org.xml.sax.SAXParseException
+import java.text.BreakIterator
+import java.util.Locale
+import java.util.Date
+
+/**
+
+  ftp://ftp.ncbi.nlm.nih.gov/pub/lu/PubTator/
+
+  // pubchem
+  // tmChem - use their sourcecode
+  // pubtator
+  // dnorm
+  // chebi
+  // ftp://ftp.ncbi.nih.gov/pubchem/Substance/Daily/2016-03-17/XML/
+
+  */
 
 /***
  * Processor for searching articles for terms.
@@ -42,6 +58,26 @@ object Processor {
   type WordPair = (String, String, Double, Double, Double, Int)
   type WordTriple = (String, String, String)
   type WordPosition = (String, Int, Int, Int)
+
+  case class WordFeature (
+    word    : String,
+    docPos  : Int,
+    paraPos : Int,
+    sentPos : Int
+  )
+  case class Paragraph (
+    sentences : List[String]
+  )
+  case class QuantifiedArticle (
+    fileName  : String,
+    date      : String,
+    generator : String,
+    raw       : String,
+    sections  : List[Paragraph],
+    A         : List[WordFeature],
+    B         : List[WordFeature],
+    C         : List[WordFeature]
+  )
 
   /**
     * Create a concatenated corpus of all of PubMed Central
@@ -109,12 +145,13 @@ object Processor {
     findPairs (quantifyArticle (article, meshXML))
   }
 
-  def findPairs (words : List[List[WordPosition]]) : List[List[WordPair]] = {
+  def findPairs (article : QuantifiedArticle) : List[List[WordPair]] = {
+    JSONUtils.writeJSON (article, "x/" + article.fileName + ".json")
     val threshold = 100
     List (
-      findCooccurring (words (0), words (1), threshold, 1), // AB
-      findCooccurring (words (1), words (2), threshold, 2), // BC
-      findCooccurring (words (0), words (2), threshold, 3)  // AC
+      findCooccurring (article.A, article.B, threshold, 1), // AB
+      findCooccurring (article.B, article.C, threshold, 2), // BC
+      findCooccurring (article.A, article.C, threshold, 3)  // AC
     )
   }
 
@@ -122,21 +159,24 @@ object Processor {
     * Determine pairs based on distance and include an confidence score 
     */
   def findCooccurring (
-    L : List[WordPosition],
-    R : List[WordPosition],
+    L : List[WordFeature],
+    R : List[WordFeature],
     threshold : Int,
     code      : Int)
       : List[WordPair] = 
   {
     L.flatMap { left =>
       R.map { right =>
-        val docPosDifference = math.abs (left._2 - right._2).toDouble
+
+        logger.debug (s"cooccurring: $left._1 and $right._1 $code")
+
+        val docPosDifference = math.abs (left.docPos - right.docPos).toDouble
         if ( docPosDifference < threshold && docPosDifference > 0 ) {
-          ( left._1,
-            right._1,
+          ( left.word,
+            right.word,
             docPosDifference,
-            math.abs (left._3 - right._3).toDouble,
-            math.abs (left._4 - right._4).toDouble,
+            math.abs (left.paraPos - right.paraPos).toDouble,
+            math.abs (left.sentPos - right.sentPos).toDouble,
             code
           )
         } else {
@@ -151,11 +191,11 @@ object Processor {
   /**
     * Quantify an article, searching for words and producing an output 
     * vector showing locations of A, B, and C terms in the text.
-    */ 
-  def quantifyArticle (article : String, meshXML : String) : List[List[WordPosition]] = {
-    var A : List[WordPosition] = List ()
-    var B : List[WordPosition] = List ()
-    var C : List[WordPosition] = List ()
+    */
+  def quantifyArticle (article : String, meshXML : String) : QuantifiedArticle = {
+    var A : List[WordFeature] = List ()
+    var B : List[WordFeature] = List ()
+    var C : List[WordFeature] = List ()
     val vocab = VocabFactory.getVocabulary (meshXML)
     logger.debug (s"""Sample vocab:
          A-> ${vocab.A.slice (1, 20)}
@@ -165,24 +205,57 @@ object Processor {
     var docPos = 0
     var paraPos = 0
     var sentPos = 0
+
+    val paraBuf = new ListBuffer [Paragraph] ()
+    val rawBuf = StringBuilder.newBuilder
     try {
       val xml = XML.loadFile (article)
       val paragraphs = (xml \\ "p")
+
       paragraphs.foreach { paragraph =>
-        val text = paragraph.text.split ("(?i)(?<=[.?!])\\S+(?=[a-z])").map (_.toLowerCase)
-        A = A.union (getDocWords (vocab.A.toArray, text, docPos, paraPos, sentPos))
-        B = B.union (getDocWords (vocab.B.toArray, text, docPos, paraPos, sentPos))
-        C = C.union (getDocWords (vocab.C.toArray, text, docPos, paraPos, sentPos))
+        val text = getSentences (paragraph.text)
+        A = A.union (getDocWords (vocab.A.toArray, text.toArray, docPos, paraPos, sentPos))
+        B = B.union (getDocWords (vocab.B.toArray, text.toArray, docPos, paraPos, sentPos))
+        C = C.union (getDocWords (vocab.C.toArray, text.toArray, docPos, paraPos, sentPos))
+
         sentPos += text.size
         docPos += paragraph.text.length
         paraPos += 1
+
+        rawBuf.append (paragraph.text)
+        rawBuf.append ("\n")
+        paraBuf += new Paragraph (text)
       }
+
     } catch {
       case e: Exception =>
         logger.error (s"Error reading json $e")
     }
-    logger.debug (s"B: ===> $B")
-    List (A, B, C)
+    new QuantifiedArticle (
+      fileName  = article.replaceAll (".*/", ""),
+      date      = new Date().toString (),
+      generator = "ChemoText2",
+      raw       = rawBuf.toString,
+      sections  = paraBuf.toList,
+      A         = A,
+      B         = B,
+      C         = C)
+  }
+
+  def getSentences (text : String) = {
+    val buf = new ListBuffer[String] ()
+    val boundary = BreakIterator.getSentenceInstance(Locale.ENGLISH)
+    boundary.setText (text)
+    var lastIndex = boundary.first()
+    while (lastIndex != BreakIterator.DONE) {
+      var firstIndex = lastIndex
+      lastIndex = boundary.next ()
+      if (lastIndex != BreakIterator.DONE) {
+        val sentence = text.substring (firstIndex, lastIndex);
+        buf += sentence.toLowerCase ()
+      }
+    }
+    buf.toList
   }
 
   /**
@@ -193,25 +266,23 @@ object Processor {
     text    : Array[String],
     docPos  : Int,
     paraPos : Int,
-    sentPos : Int) : List[WordPosition] =
+    sentPos : Int) : List[WordFeature] =
   {
+    logger.debug ("text-> " + text.mkString (" "))
     var textPos = 0
     var sentenceIndex = 0
-    var result : ListBuffer[WordPosition] = ListBuffer ()
+    var result : ListBuffer[WordFeature] = ListBuffer ()
     if (words != null && text != null) {
       text.foreach { sentence =>
         words.foreach { word =>
-          if (!word.equals ("for") && !word.equals ("was")) { // raw she ran cough
-            val index = sentence.indexOf (word)
-            if (index > -1) {
-              sentence.split (" ").foreach { token =>
-                if (word.equals (token)) {
-                  val tuple = ( word, docPos + textPos + index, paraPos, sentPos + sentenceIndex )
-                    result.add ( tuple )
-                  logger.debug (s"Adding result $tuple")
-                }
-              }
-            }
+          val index = sentence.indexOf (word)
+          if (index > -1) {
+            val features = new WordFeature (word, docPos + textPos + index, paraPos, sentPos + sentenceIndex )
+            result.add ( features )
+
+            logger.debug (
+              s"**adding word:$word dpos:$docPos tpos:$textPos" +
+              s"idx:$index ppos:$paraPos spos:$sentPos sidx:$sentenceIndex")
           }
         }
         sentenceIndex += 1
@@ -220,7 +291,6 @@ object Processor {
     }
     result.toList
   }
-
 
   val ordinary=(('a' to 'z') ++ ('A' to 'Z') ++ ('0' to '9')).toSet
   def isOrdinary(s:String) = s.forall (ordinary.contains (_))
@@ -231,9 +301,7 @@ object Processor {
   def getDistinctAlpha (terms : RDD[String]) : List[String] = {
     terms.filter { text =>
       val lower = text.replaceAll("-", "")
-//      ! (lower forall Character.isDigit) && lower.length > 2
       (! ( lower forall Character.isDigit) ) && 
-//      isOrdinary (lower) &&
       lower.length > 2 &&
       ( ( ! lower.equals ("was")) && ( ! lower.equals ("for")) )
     }.map { text =>
@@ -317,26 +385,6 @@ object Processor {
         )
       })
   }
-
-/*
-  def trainLRM (samples : RDD[(String, String, Double, Double, Double)], name : String) = {
-    var model : LogisticRegressionModel = null
-    if (Files.exists(Paths.get(name))) {
-      model = LogisticRegressionModel.load(sc, name)
-    } else {
-      logger.info (s"Training LRM with ${samples.count} binaries")
-      model = new LogisticRegressionWithLBFGS().run(
-        samples.map { item =>
-          new LabeledPoint (
-            label    = 1,
-            features = new DenseVector (Array( item._3, item._4, item._5 ))
-          )
-        })
-      model.save (name)
-    }
-    model
-  }
- */
 
   def modelProbabilities (
     binaries: RDD[WordPair],
@@ -562,6 +610,11 @@ object Processor {
 
     val vocab = extendVocabulary (AB, BC, AC, meshXML)
 
+    logger.debug (s"article path count: ${articlePaths.count}")
+    articlePaths.collect.foreach { a =>
+      logger.debug (s"------------> $a")
+    }
+
     val binaries = generatePairs (articlePaths, meshXML, sampleSize)
 
     evaluateBinaries (binaries, AB, BC, AC)
@@ -613,6 +666,8 @@ class PipelineContext (
     val articleRootDir = new File (articleRootPath)
     val articleRegex = new Regex (".*.fxml")
     val articleList = getFileList (articleRootDir, articleRegex)
+
+    logger.debug (s"Article List: $articleList")
 
     val corpusPath = "pmc_corpus.txt"
     val vectorModelPath = "pmc_w2v.model"

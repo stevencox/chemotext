@@ -20,9 +20,10 @@ import java.nio.file.{Paths, Files}
 import org.json4s._
 import org.json4s.JsonAST._
 import org.json4s.JsonAST.JValue
-import org.json4s.jackson.JsonMethods._
+//import org.json4s.jackson.JsonMethods._
+import org.json4s.native.JsonMethods._
 import org.json4s.native.Serialization
-import org.json4s.native.Serialization.{read, write}
+import org.json4s.native.Serialization.{ read, write, writePretty}
 import scala.collection.mutable.ListBuffer
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -103,11 +104,10 @@ object JSONUtils {
   def writeJSON [A <: AnyRef: Manifest](obj : A, jsonPath : String) = {
     val startTime = Platform.currentTime
     implicit val formats = Serialization.formats(NoTypeHints)
-    val serialized = write (obj)
     var out : PrintWriter = null
     try {
       out = new PrintWriter(new BufferedWriter (new FileWriter (jsonPath)))
-      out.println (serialized)
+      out.println (writePretty(obj)) //write(obj)))
       out.flush ()
     } catch {
       case e : IOException =>

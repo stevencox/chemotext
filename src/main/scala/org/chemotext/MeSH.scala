@@ -45,11 +45,12 @@ object VocabFactory {
 
   def getVocabulary (data : String) : Vocabulary = {
     if (cache == null) {
-      logger.info ("VocabFactory cache miss.")
 
       // Read JSON
       cache = readJSON (defaultJsonPath)
       if (cache == null) {
+
+        logger.info ("VocabFactory cache miss.")
 
         // Parse XML
         val mesh = new MeSH (data)
@@ -71,9 +72,9 @@ object VocabFactory {
       implicit val formats = DefaultFormats
       vocabulary = json.extract [Vocabulary]
       mesh = new MeSH ()
-      logger.info (s"vocab.A => ${vocabulary.A}")
-      logger.info (s"vocab.B => ${vocabulary.B}")
-      logger.info (s"vocab.C => ${vocabulary.C}")
+      logger.debug (s"vocab.A => ${vocabulary.A}")
+      logger.debug (s"vocab.B => ${vocabulary.B}")
+      logger.debug (s"vocab.C => ${vocabulary.C}")
     }
     vocabulary
   }
