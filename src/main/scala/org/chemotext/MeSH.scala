@@ -32,10 +32,10 @@ import scala.xml.factory.XMLLoader
 import scala.xml.pull._
 
 case class Vocabulary (
-  A : List[String],
-  B : List[String],
-  C : List[String],
-  extended : Boolean = false);
+  A          : List[String],
+  B          : List[String],
+  C          : List[String],
+  extended   : Boolean = false);
 
 object VocabFactory {
 
@@ -50,7 +50,7 @@ object VocabFactory {
       cache = readJSON (defaultJsonPath)
       if (cache == null) {
 
-        logger.info ("VocabFactory cache miss.")
+        logger.info ("Vocabulary cache miss. Generating vocabulary from sources.")
 
         // Parse XML
         val mesh = new MeSH (data)
@@ -100,6 +100,7 @@ class MeSH (meshData : String = "") {
   var A = ArrayBuffer.empty[String]
   var B = ArrayBuffer.empty[String]
   var C = ArrayBuffer.empty[String]
+  val map = HashMap.empty[String, String]
 
   val logger = LoggerFactory.getLogger("MeSH Vocab")
 
@@ -113,6 +114,8 @@ class MeSH (meshData : String = "") {
       var elementName : String = null
       var inTreeNum = false
       var inPharmaAction = false
+      var inDescriptorUI = false
+      var descriptorUI : String = null
 
       for (event <- xml) {
         event match {
@@ -126,10 +129,18 @@ class MeSH (meshData : String = "") {
 
           case EvElemStart(_, "DescriptorRecord", _, _) => {
             inDescriptor = true
+            descriptorUI = null
           }
           case EvElemEnd(_, "DescriptorRecord") => {
             inDescriptor = false
             elementName = null
+          }
+
+          case EvElemStart(_, "DescriptorUI", _, _) => {
+            inDescriptorUI = true
+          }
+          case EvElemEnd(_, "DescriptorUI") => {
+            inDescriptorUI = false
           }
 
           case EvElemStart (_, "DescriptorName", _, _) => {
@@ -164,6 +175,11 @@ class MeSH (meshData : String = "") {
           case EvText(t) => {
             if (inElementName) {
               elementName = t.trim ().toLowerCase ()
+              if (descriptorUI != null) {
+                map += ( descriptorUI -> elementName)
+              }
+            } else if (inDescriptorUI) {
+              descriptorUI = t.trim()
             } else if (inTreeNum && elementName != null) {
               val treeNumber = t
               if (treeNumber.startsWith (protein_mesh_prefix)) {
@@ -282,39 +298,8 @@ Loaded ${A.size} chemicals
             }
             out.println (s"descriptorName: $descriptorName ")
           }
-
-
-
-/*
-
-         list of ( A -> B )
-            - SupplementalRecordUI - the code
-            - SupplementalRecordName/String - the name
-            - HeadingMappedToList/HeadingMappedTo/DescriptorReferredTo/ (DescriptorName/String)
-            - DescriptorUI
-
-
-
-        case EvElemStart(_, "DescriptorName", _, _) => {
-          inDescriptor = true
         }
-        case EvElemEnd(_, "DescriptorName") => {
-          inDescriptor = false
-        }
-
-        case EvElemStart(_, "String", _, _) => {
-          if (inDescriptor)
-            inString = true
-        }
-        case EvElemEnd(_, "String") => {
-          if (inDescriptor)
-            inString = false
-        }
- */
-
       }
-    }
-
     } catch {
       case e : IOException =>
         logger.error (s"Error writing validated A->B list: $e")

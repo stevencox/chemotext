@@ -6,6 +6,9 @@ import java.io.BufferedWriter
 import java.io.IOException
 import java.io.FileWriter
 import java.nio.file.{Paths, Files}
+import java.text.BreakIterator
+import java.util.Locale
+import java.util.Date
 import org.apache.spark.SparkConf
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkContext._
@@ -17,21 +20,18 @@ import org.apache.spark.mllib.linalg.Vector
 import org.apache.spark.mllib.linalg.DenseVector
 import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.mllib.util.MLUtils
+import org.apache.spark.sql.SQLContext
 import org.json4s._
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import org.xml.sax.SAXParseException
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.mutable.HashMap
-import scala.collection.immutable.HashMap
 import scala.collection.JavaConversions._
 import scala.collection.mutable.ListBuffer
 import scala.compat.Platform
 import scala.util.matching.Regex
 import scala.xml.XML
-import org.xml.sax.SAXParseException
-import java.text.BreakIterator
-import java.util.Locale
-import java.util.Date
 
 /**
 
@@ -169,7 +169,7 @@ object Processor {
   }
 
   def findPairs (article : QuantifiedArticle) : QuantifiedArticle = {
-    val threshold = 100
+    val threshold = 300
     QuantifiedArticle (
       fileName   = article.fileName,
       date       = article.date,
@@ -196,12 +196,12 @@ object Processor {
   {
     L.flatMap { left =>
       R.map { right =>
-        logger.debug (s"cooccurring: $left._1 and $right._1 $code")
-        val docPosDifference = math.abs (left.docPos - right.docPos).toDouble
-        if ( docPosDifference < threshold && docPosDifference > 0 ) {
+        val distance = math.abs (left.docPos - right.docPos).toDouble
+        if ( distance < threshold && distance > 0 ) {
+          logger.debug (s"cooccurring: $left._1 and $right._1 code:$code distance:$distance")
           new Binary ( left.word,
             right.word,
-            docPosDifference,
+            distance,
             math.abs (left.paraPos - right.paraPos).toDouble,
             math.abs (left.sentPos - right.sentPos).toDouble,
             code
@@ -220,15 +220,18 @@ object Processor {
     * vector showing locations of A, B, and C terms in the text.
     */
   def quantifyArticle (article : String, meshXML : String) : QuantifiedArticle = {
+
     var A : List[WordFeature] = List ()
     var B : List[WordFeature] = List ()
     var C : List[WordFeature] = List ()
+
     val vocab = VocabFactory.getVocabulary (meshXML)
     logger.debug (s"""Sample vocab:
          A-> ${vocab.A.slice (1, 20)}
          B-> ${vocab.B.slice (1, 20)}
          C-> ${vocab.C.slice (1, 20)}""")
     logger.info (s"@-article: ${article}")
+
     var docPos = 0
     var paraPos = 0
     var sentPos = 0
@@ -240,16 +243,19 @@ object Processor {
       val paragraphs = (xml \\ "p")
 
       paragraphs.foreach { paragraph =>
-        val text = getSentences (paragraph.text)
-        A = A.union (getDocWords (vocab.A.toArray, text.toArray, docPos, paraPos, sentPos))
-        B = B.union (getDocWords (vocab.B.toArray, text.toArray, docPos, paraPos, sentPos))
-        C = C.union (getDocWords (vocab.C.toArray, text.toArray, docPos, paraPos, sentPos))
+        // replace non ascii characters
+        val raw = paragraph.text.replaceAll ("[^\\x00-\\x7F]", "");
+        val text = getSentences (raw)
+
+        A = A.union (getDocWords (vocab.A.toArray, text.toArray, docPos, paraPos, sentPos, "A"))
+        B = B.union (getDocWords (vocab.B.toArray, text.toArray, docPos, paraPos, sentPos, "B"))
+        C = C.union (getDocWords (vocab.C.toArray, text.toArray, docPos, paraPos, sentPos, "C"))
 
         sentPos += text.size
         docPos += paragraph.text.length
         paraPos += 1
 
-        rawBuf.append (paragraph.text)
+        rawBuf.append (raw)
         rawBuf.append ("\n")
         paraBuf += new Paragraph (text)
       }
@@ -293,27 +299,31 @@ object Processor {
     text    : Array[String],
     docPos  : Int,
     paraPos : Int,
-    sentPos : Int) : List[WordFeature] =
+    sentPos : Int,
+    list : String) : List[WordFeature] =
   {
     logger.debug ("text-> " + text.mkString (" "))
     var textPos = 0
     var sentenceIndex = 0
     var result : ListBuffer[WordFeature] = ListBuffer ()
     if (words != null && text != null) {
-      text.foreach { sentence =>
+      text.foreach { sentence => 
+        val tokens = sentence.split (" ").map (_.trim ().replaceAll ("[\\./]", ""))
+        var originalTextPos = textPos
         words.foreach { word =>
-          val index = sentence.indexOf (word)
-          if (index > -1) {
-            val features = new WordFeature (word, docPos + textPos + index, paraPos, sentPos + sentenceIndex )
-            result.add ( features )
-
-            logger.debug (
-              s"**adding word:$word dpos:$docPos tpos:$textPos" +
-              s"idx:$index ppos:$paraPos spos:$sentPos sidx:$sentenceIndex")
+          textPos = originalTextPos
+          tokens.foreach { token =>
+            if (token.equals (word)) {
+              val features = new WordFeature (word, docPos + textPos, paraPos, sentPos + sentenceIndex )
+              result.add ( features )
+              logger.debug (
+                s"**adding word:$word dpos:$docPos tpos:$textPos token:$token " +
+                  s" ppos:$paraPos spos:$sentPos sidx:$sentenceIndex")
+            }
+            textPos += token.length () + 1
           }
         }
         sentenceIndex += 1
-        textPos += sentence.length ()
       }
     }
     result.toList
@@ -366,12 +376,29 @@ object Processor {
     }
   }
 
+  def getCSV (sc : SparkContext, fileName : String, sampleSize : Double = 0.1) : RDD[Array[String]] = {
+    val sqlContext = new SQLContext(sc)
+    sqlContext.read
+      .format("com.databricks.spark.csv")
+      .load(fileName).rdd.sample (false, sampleSize, 1234)
+      .map { row =>
+        Array( row.getString(0), row.getString(1), row.getString(2), row.getString(3) )
+    }
+  }
+
+  def getCSVFields (sc : SparkContext, fileName : String, sampleSize : Double = 0.1, a : Int, b : Int, code : Int)
+      : RDD[(String,String,Int)] = 
+  {
+    getCSV (sc, fileName, sampleSize).map { row => ( row(a), row(b), code ) }
+  }
+
   def formKey (a : String, b : String) : String = {
-    s"$a-$b"
+    // Must use a character that's not part of IUPAC codes.
+    s"${a.toLowerCase()}@${b.toLowerCase()}"
   }
 
   def splitKey (k : String) : Array[String] = {
-    k.split ("-")
+    k.split ("@")
   }
 
   def joinBinaries (
@@ -383,6 +410,10 @@ object Processor {
     val left = L.map { item =>
       ( formKey (item._1, item._2), (0) )
     }
+    left.foreach { l =>
+      println (s"  ------88> $l")
+    }
+
     R.join (left).map { item =>
       val k = splitKey (item._1)
       Binary ( k(0), k(1), item._2._1._1, item._2._1._2, item._2._1._3, item._2._1._4 )
@@ -423,58 +454,27 @@ object Processor {
   ) = {
 
     logger.info ("Checking vocabulary...")
-    val vocab = VocabFactory.getVocabulary (meshXML)
-    if (! vocab.extended) {
-      /*
+    var vocab = VocabFactory.getVocabulary (meshXML)
+    if (true) { //! vocab.extended) {
+
       logger.info ("Extending basic (MeSH) vocabulary with terms from CTD...")
       // AB -> _1, _4
       // BC -> _1, _3
       // AC -> _1, _4
 
-      val A = List.concat (vocab.A, getDistinctAlpha (AB.map { e => e._1 })).to[ListBuffer]
+      val A = vocab.A.union (getDistinctAlpha (AB.map { e => e._1 })).distinct.filter (!_.equals ("apoptosis"))
+      val B = vocab.B.union (getDistinctAlpha (AB.map { e => e._2 })).distinct
+      val C = vocab.C.union (getDistinctAlpha (AC.map { e => e._2 })).distinct
 
-      val B = vocab.B :::
-      getDistinctAlpha (AB.map { e => e._2 }) :::
-      getDistinctAlpha (BC.map { e => e._1 }).filter { lower =>
-        (! ( lower forall Character.isDigit) ) &&
-        lower.length > 2 &&
-        ( ( ! lower.equals ("was")) && ( ! lower.equals ("for")) )
-      }
-
-      val C = List.concat (vocab.C, getDistinctAlpha (AC.map { e => e._2 })).to[ListBuffer]
-
-      Array( A, B.to[ListBuffer], C ).map { v =>
-        v -= "was"
-        v -= "for"
-      }
-
-      VocabFactory.writeJSON (new Vocabulary (
+      vocab = new Vocabulary (
         A.toList,
         B.toList,
         C.toList,
-        true))
-       */
+        true)
+
+      VocabFactory.writeJSON (vocab)
     }
     vocab
-    /*
-    val a = vocab.A.to[ListBuffer]
-    a -= "was"
-    a -= "for"
-
-    val b = vocab.B.to[ListBuffer]
-    b -= "was"
-    b -= "for"
-
-    val c = vocab.C.to[ListBuffer]
-    c -= "was"
-    c -= "for"
-
-    new Vocabulary (
-      a.toList,
-      b.toList,
-      c.toList
-    )
- */
   }
 
   def getFlatBinaries (binaries : RDD[QuantifiedArticle]) : RDD[Binary] = {
@@ -496,7 +496,9 @@ object Processor {
     /*
      *  Get AB and BC pairs from CTD and associate with feature vectors
      */
+    logger.debug ("Join AB binaries")
     val abBinaries = joinBinaries (AB, fb)
+    logger.debug ("Join BC binaries")
     val bcBinaries = joinBinaries (BC, fb)
 
     val abLRM = trainLRM (abBinaries.union(bcBinaries))
@@ -570,10 +572,15 @@ object Processor {
     val fb = getFlatBinaries (articles).map { item =>
       ( formKey (item.L, item.R), ( item.docDist, item.paraDist, item.sentDist, item.code ))
     }.cache ()
-
     
     logger.info (" -- joining binaries")
+    logger.info ("Joining AB binaries to generated binary predictions")
     val abBinaries = joinBinaries (AB, fb)
+    AB.foreach { b =>
+      logger.debug (s" ------> $b")
+    }
+
+    logger.debug ("Joining BC binaries to generated binary predictions")
     val bcBinaries = joinBinaries (BC, fb)
 
     logger.info (" -- counting predicted")
@@ -605,9 +612,6 @@ object Processor {
     println (s" bc predicted count:       $bcPredictedCount")
     println (s" ab predicted and in ctd:  ${abBinaries.count ()}")
     println (s" bc predicted and in ctd:  ${bcBinaries.count ()}")
-
-    val predictedAndNotInCTD = abBinaries
-    println (s"AB: predicted and in CTD: ")
   }
 
   /*
@@ -631,12 +635,11 @@ object Processor {
     AC           : RDD[(String, String, Int)],
     sampleSize   : Double) =
   {
-
     val vocab = extendVocabulary (AB, BC, AC, meshXML)
 
     logger.debug (s"article path count: ${articlePaths.count}")
     articlePaths.collect.foreach { a =>
-      logger.debug (s"------------> $a")
+      logger.debug (s"--> $a")
     }
 
     val articles = generatePairs (articlePaths, meshXML, sampleSize)
@@ -661,7 +664,7 @@ class PipelineContext (
   ctdACPath       : String = "../data/pubmed/ctd/CTD_chemicals_diseases.csv",
   ctdABPath       : String = "../data/pubmed/ctd/CTD_chem_gene_ixns.csv",
   ctdBCPath       : String = "../data/pubmed/ctd/CTD_genes_diseases.csv",
-  sampleSize      : String = "0.01")
+  sampleSize      : Double = 0.01)
 {
   val logger = LoggerFactory.getLogger ("PipelineContext")
 
@@ -710,18 +713,9 @@ class PipelineContext (
     }
      */
 
-
-    val AB = Processor.getTSVRecords (sparkContext.textFile (ctdABPath)).map { row =>
-      ( row(0), row(3), 1 )
-    }.sample (false, 0.01, 1234)
-
-    val BC = Processor.getTSVRecords (sparkContext.textFile (ctdBCPath)).map { row =>
-      ( row(0), row(2), 2 )
-    }.sample (false, 0.01, 1234)
-
-    val AC = Processor.getTSVRecords (sparkContext.textFile (ctdACPath)).map { row =>
-      ( row(0), row(3), 3 )
-    }.sample (false, 0.01, 1234)
+    val AB = Processor.getCSVFields (sparkContext, ctdABPath, sampleSize, 0, 3, 1)
+    val BC = Processor.getCSVFields (sparkContext, ctdBCPath, sampleSize, 0, 2, 2)
+    val AC = Processor.getCSVFields (sparkContext, ctdACPath, sampleSize, 0, 3, 3)
 
     Processor.executeChemotextPipeline (
       articlePaths = sparkContext.parallelize (articleList),
@@ -729,9 +723,8 @@ class PipelineContext (
       AB           = AB,
       BC           = BC,
       AC           = AC,
-      sampleSize   = sampleSize.toDouble)
+      sampleSize   = sampleSize)
   }
-
 }
 
 object PipelineApp {
@@ -768,7 +761,7 @@ object PipelineApp {
       ctdACPath,
       ctdABPath,
       ctdBCPath,
-      sampleSize)
+      sampleSize.toDouble)
     pipeline.execute ()    
   }
 }

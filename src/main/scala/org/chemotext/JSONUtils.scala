@@ -117,7 +117,7 @@ object JSONUtils {
       out.close ()
     }
     val endTime = Platform.currentTime
-    logger.info (s"Wrote json in ${(endTime - startTime) / 1000} seconds.")
+    logger.debug (s"Wrote json in ${(endTime - startTime) / 1000} seconds.")
   }
 
 /*
