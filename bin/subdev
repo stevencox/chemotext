@@ -19,6 +19,7 @@ p0 () {
     CTDABPATH=$DATA_HOME/ctd/CTD_chem_gene_ixns.csv
     CTDBCPATH=$DATA_HOME/ctd/CTD_genes_diseases.csv
     SAMPLESIZE=1
+    OUTPUTPATH=output
 }
 
 p1 () {
@@ -27,6 +28,7 @@ p1 () {
     CTDABPATH=$STARS_HOME/data/pubmed/ctd/CTD_chem_gene_ixns.csv
     CTDBCPATH=$STARS_HOME/data/pubmed/ctd/CTD_genes_diseases.csv
     SAMPLESIZE=0.001
+    OUTPUTPATH=output
 }
 
 p0
@@ -51,4 +53,5 @@ $SPARK_HOME/bin/spark-submit \
     $SAMPLESIZE \
     $CTDACPATH \
     $CTDABPATH \
-    $CTDBCPATH
+    $CTDBCPATH \
+    $OUTPUTPATH

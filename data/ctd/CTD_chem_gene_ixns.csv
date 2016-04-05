@@ -1,0 +1,40 @@
+# The Comparative Toxicogenomics Database (CTD) - http://ctdbase.org/
+#   Copyright 2004-2016 Mount Desert Island Biological Laboratory.
+#   All rights reserved.
+# 
+# Use is subject to the terms set forth at http://ctdbase.org/about/legal.jsp
+# These terms include:
+# 
+#   1. All forms of publication (e.g., web sites, research papers, databases,
+#      software applications, etc.) that use or rely on CTD data must cite CTD.
+#      Citation guidelines: http://ctdbase.org/about/publications/#citing
+# 
+#   2. All electronic or online applications must include hyperlinks from 
+#      contexts that use CTD data to the applicable CTD data pages.
+#      Linking instructions: http://ctdbase.org/help/linking.jsp
+# 
+#   3. You must notify CTD, and describe your use of our data:
+#      http://ctdbase.org/help/contact.go
+# 
+#   4. For quality control purposes, you must provide CTD with periodic 
+#      access to your publication of our data.
+# 
+# More information: http://ctdbase.org/downloads/
+# 
+# Report created: Fri Feb 05 10:51:02 EST 2016
+#
+# Fields:
+# ChemicalName,ChemicalID,CasRN,GeneSymbol,GeneID,GeneForms,Organism,OrganismID,Interaction,InteractionActions,PubMedIDs
+#
+10074-G5,C534883,,MAX,4149,protein,,,10074-G5 affects the folding of and results in decreased activity of [MYC protein binds to MAX protein],affects^binding|affects^folding|decreases^activity,26474287
+10074-G5,C534883,,MAX,4149,protein,,,10074-G5 inhibits the reaction [MYC protein binds to MAX protein],affects^binding|decreases^reaction,26474287
+10074-G5,C534883,,MYC,4609,protein,Homo sapiens,9606,10074-G5 analog results in decreased expression of MYC protein,decreases^expression,26036281
+10074-G5,C534883,,MYC,4609,protein,Homo sapiens,9606,10074-G5 results in decreased activity of MYC protein,decreases^activity,25716159
+10074-G5,C534883,,MYC,4609,protein,Homo sapiens,9606,10074-G5 results in decreased expression of MYC protein,decreases^expression,26036281
+10074-G5,C534883,,MYC,4609,protein,,,10074-G5 affects the folding of and results in decreased activity of [MYC protein binds to MAX protein],affects^binding|affects^folding|decreases^activity,26474287
+10074-G5,C534883,,MYC,4609,protein,,,10074-G5 inhibits the reaction [MYC protein binds to MAX protein],affects^binding|decreases^reaction,26474287
+"10,10-bis(4-pyridinylmethyl)-9(10H)-anthracenone",C112297,,KCNQ1,3784,protein,,,"10,10-bis(4-pyridinylmethyl)-9(10H)-anthracenone results in decreased activity of KCNQ1 protein",decreases^activity,18568022
+"10,10-bis(4-pyridinylmethyl)-9(10H)-anthracenone",C112297,,KCNQ2,3785,protein,Mus musculus,10090,"10,10-bis(4-pyridinylmethyl)-9(10H)-anthracenone affects the reaction [[Potassium results in increased activity of KCNQ2 protein] which results in increased import of Thallium]",affects^reaction|increases^activity|increases^import,15634793
+"10,10-bis(4-pyridinylmethyl)-9(10H)-anthracenone",C112297,,KCNQ2,3785,protein,,,"10,10-bis(4-pyridinylmethyl)-9(10H)-anthracenone inhibits the reaction [[KCNQ2 protein binds to KCNQ3 protein] which results in increased transport of Thallium]",affects^binding|decreases^reaction|increases^transport,20208034
+"10,10-bis(4-pyridinylmethyl)-9(10H)-anthracenone",C112297,,KCNQ3,3786,protein,,,"10,10-bis(4-pyridinylmethyl)-9(10H)-anthracenone inhibits the reaction [[KCNQ2 protein binds to KCNQ3 protein] which results in increased transport of Thallium]",affects^binding|decreases^reaction|increases^transport,20208034
+"10,11-dihydro-10,11-dihydroxy-5H-dibenzazepine-5-carboxamide",C004822,35079-97-1,EPHX1,2052,gene,Homo sapiens,9606,"[EPHX1 gene SNP affects the metabolism of carbamazepine epoxide] which affects the chemical synthesis of 10,11-dihydro-10,11-dihydroxy-5H-dibenzazepine-5-carboxamide",increases^chemical synthesis|increases^metabolic processing,15692831

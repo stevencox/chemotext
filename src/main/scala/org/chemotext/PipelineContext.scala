@@ -129,7 +129,7 @@ object Processor {
     word2vec.fit (corpus)
   }
 
-  def findTriples (article : QuantifiedArticle) : QuantifiedArticle = {
+  def findTriples (article : QuantifiedArticle, outputPath : String) : QuantifiedArticle = {
     logger.debug (s" Finding triples in AB/BC pair lists ${article.AB.length}/${article.BC.length} long")
     val ABC = article.AB.flatMap { ab =>
       article.BC.map { bc =>
@@ -157,7 +157,11 @@ object Processor {
       AC         = article.AC,
       ABC        = ABC)
 
-    JSONUtils.writeJSON (quantified, "x/" + quantified.fileName + ".json")
+    val outputDir = new File (outputPath)
+    if (! outputDir.isDirectory ()) {
+      outputDir.mkdirs ()
+    }
+    JSONUtils.writeJSON (quantified, outputPath + File.separator + quantified.fileName + ".json")
     quantified
   }
 
@@ -538,10 +542,10 @@ object Processor {
 
   }
 
-  def calculateTriples (articles : RDD[QuantifiedArticle]) = {
+  def calculateTriples (articles : RDD[QuantifiedArticle], outputPath : String) = {
     logger.info ("== Calculate triples.")
     val triples = articles.map { article =>
-      Processor.findTriples (article)
+      Processor.findTriples (article, outputPath)
     }.flatMap { article =>
       article.ABC
     }.map { triple =>
@@ -639,7 +643,8 @@ object Processor {
     AB           : RDD[(String, String, Int)],
     BC           : RDD[(String, String, Int)],
     AC           : RDD[(String, String, Int)],
-    sampleSize   : Double) =
+    sampleSize   : Double,
+    outputPath   : String) =
   {
     val vocab = extendVocabulary (AB, BC, AC, meshXML)
 
@@ -652,7 +657,7 @@ object Processor {
 
     evaluateBinaries (articles, AB, BC, AC)
 
-    calculateTriples (articles)
+    calculateTriples (articles, outputPath)
 
     //genHypothesesWithLRM (binaries, AB, BC)
   }
@@ -670,7 +675,8 @@ class PipelineContext (
   ctdACPath       : String = "../data/pubmed/ctd/CTD_chemicals_diseases.csv",
   ctdABPath       : String = "../data/pubmed/ctd/CTD_chem_gene_ixns.csv",
   ctdBCPath       : String = "../data/pubmed/ctd/CTD_genes_diseases.csv",
-  sampleSize      : Double = 0.01)
+  sampleSize      : Double = 0.01,
+  outputPath      : String = "output")
 {
   val logger = LoggerFactory.getLogger ("PipelineContext")
 
@@ -729,7 +735,8 @@ class PipelineContext (
       AB           = AB,
       BC           = BC,
       AC           = AC,
-      sampleSize   = sampleSize)
+      sampleSize   = sampleSize,
+      outputPath   = outputPath)
   }
 }
 
@@ -747,6 +754,7 @@ object PipelineApp {
     val ctdACPath = args(5)
     val ctdABPath = args(6)
     val ctdBCPath = args(7)
+    val outputPath = args(8)
 
     logger.info (s"appName        : $appName")
     logger.info (s"appHome        : $appHome")
@@ -756,6 +764,7 @@ object PipelineApp {
     logger.info (s"ctdACPath      : $ctdACPath")
     logger.info (s"ctdABPath      : $ctdABPath")
     logger.info (s"ctdBCPath      : $ctdBCPath")
+    logger.info (s"outputPath      : $outputPath")
 
     val conf = new SparkConf().setAppName(appName)
     val sc = new SparkContext(conf)
@@ -767,7 +776,8 @@ object PipelineApp {
       ctdACPath,
       ctdABPath,
       ctdBCPath,
-      sampleSize.toDouble)
+      sampleSize.toDouble,
+      outputPath)
     pipeline.execute ()    
   }
 }

@@ -1,0 +1,50 @@
+# The Comparative Toxicogenomics Database (CTD) - http://ctdbase.org/
+#   Copyright 2004-2016 Mount Desert Island Biological Laboratory.
+#   All rights reserved.
+# 
+# Use is subject to the terms set forth at http://ctdbase.org/about/legal.jsp
+# These terms include:
+# 
+#   1. All forms of publication (e.g., web sites, research papers, databases,
+#      software applications, etc.) that use or rely on CTD data must cite CTD.
+#      Citation guidelines: http://ctdbase.org/about/publications/#citing
+# 
+#   2. All electronic or online applications must include hyperlinks from 
+#      contexts that use CTD data to the applicable CTD data pages.
+#      Linking instructions: http://ctdbase.org/help/linking.jsp
+# 
+#   3. You must notify CTD, and describe your use of our data:
+#      http://ctdbase.org/help/contact.go
+# 
+#   4. For quality control purposes, you must provide CTD with periodic 
+#      access to your publication of our data.
+# 
+# More information: http://ctdbase.org/downloads/
+# 
+# Report created: Fri Feb 05 11:32:48 EST 2016
+#
+# Fields:
+# GeneSymbol,GeneID,DiseaseName,DiseaseID,DirectEvidence,InferenceChemicalName,InferenceScore,OmimIDs,PubMedIDs
+#
+11-BETA-HSD3,100174880,"Abnormalities, Drug-Induced",MESH:D000014,,Endocrine Disruptors,5.16,,22659286
+11-BETA-HSD3,100174880,"Anemia, Hemolytic",MESH:D000743,,"Water Pollutants, Chemical",4.47,,22425172
+11-BETA-HSD3,100174880,Asthenozoospermia,MESH:D053627,,"Water Pollutants, Chemical",5.31,,25179371
+11-BETA-HSD3,100174880,Breast Neoplasms,MESH:D001943,,Endocrine Disruptors,8.64,,20646273
+11-BETA-HSD3,100174880,Breast Neoplasms,MESH:D001943,,"Water Pollutants, Chemical",8.64,,20164002
+11-BETA-HSD3,100174880,"Cell Transformation, Neoplastic",MESH:D002471,,"Water Pollutants, Chemical",4.30,,26210350
+11-BETA-HSD3,100174880,Chromosome Aberrations,MESH:D002869,,"Water Pollutants, Chemical",4.73,,20732340
+11-BETA-HSD3,100174880,Death,MESH:D003643,,"Water Pollutants, Chemical",4.99,,22471926
+11-BETA-HSD3,100174880,Disorders of Sex Development,MESH:D012734,,Endocrine Disruptors,13.96,,25198161
+11-BETA-HSD3,100174880,Disorders of Sex Development,MESH:D012734,,"Water Pollutants, Chemical",13.96,,25198161
+11-BETA-HSD3,100174880,Fetal Death,MESH:D005313,,Endocrine Disruptors,5.71,,20487043
+11-BETA-HSD3,100174880,Hypokinesia,MESH:D018476,,"Water Pollutants, Chemical",4.57,,24394944
+11-BETA-HSD3,100174880,Infertility,MESH:D007246,,"Water Pollutants, Chemical",5.44,,24576698
+11-BETA-HSD3,100174880,Kidney Diseases,MESH:D007674,,"Water Pollutants, Chemical",3.77,,22471926
+11-BETA-HSD3,100174880,Leukopenia,MESH:D007970,,"Water Pollutants, Chemical",4.48,,11915957
+11-BETA-HSD3,100174880,Lymphocytosis,MESH:D008218,,"Water Pollutants, Chemical",5.87,,11915957
+11-BETA-HSD3,100174880,Mercury Poisoning,MESH:D008630,,"Water Pollutants, Chemical",5.52,,18594997
+11-BETA-HSD3,100174880,"Micronuclei, Chromosome-Defective",MESH:D048629,,"Water Pollutants, Chemical",4.57,,23022116
+11-BETA-HSD3,100174880,Neoplasms,MESH:D009369,,"Water Pollutants, Chemical",4.02,,22471926
+11-BETA-HSD3,100174880,Neutropenia,MESH:D009503,,"Water Pollutants, Chemical",4.39,,11915957
+11-BETA-HSD3,100174880,Obesity,MESH:D009765,,"Water Pollutants, Chemical",4.26,,20526952
+11-BETA-HSD3,100174880,Poisoning,MESH:D011041,,"Water Pollutants, Chemical",4.11,,11932003|18594997|18653214|19457444

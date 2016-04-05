@@ -1,0 +1,39 @@
+# The Comparative Toxicogenomics Database (CTD) - http://ctdbase.org/
+#   Copyright 2004-2016 Mount Desert Island Biological Laboratory.
+#   All rights reserved.
+# 
+# Use is subject to the terms set forth at http://ctdbase.org/about/legal.jsp
+# These terms include:
+# 
+#   1. All forms of publication (e.g., web sites, research papers, databases,
+#      software applications, etc.) that use or rely on CTD data must cite CTD.
+#      Citation guidelines: http://ctdbase.org/about/publications/#citing
+# 
+#   2. All electronic or online applications must include hyperlinks from 
+#      contexts that use CTD data to the applicable CTD data pages.
+#      Linking instructions: http://ctdbase.org/help/linking.jsp
+# 
+#   3. You must notify CTD, and describe your use of our data:
+#      http://ctdbase.org/help/contact.go
+# 
+#   4. For quality control purposes, you must provide CTD with periodic 
+#      access to your publication of our data.
+# 
+# More information: http://ctdbase.org/downloads/
+# 
+# Report created: Fri Feb 05 10:46:06 EST 2016
+#
+# Fields:
+# ChemicalName,ChemicalID,CasRN,DiseaseName,DiseaseID,DirectEvidence,InferenceGeneSymbol,InferenceScore,OmimIDs,PubMedIDs
+#
+06-Paris-LA-66 protocol,C046983,,Precursor Cell Lymphoblastic Leukemia-Lymphoma,MESH:D054198,therapeutic,,,,4519131
+10074-G5,C534883,,Adenocarcinoma of lung,MESH:C538231,,MYC,5.06,,26656844
+10074-G5,C534883,,Burkitt Lymphoma,MESH:D002051,,MYC,5.40,113970,
+10074-G5,C534883,,Carcinoma,MESH:D002277,,MYC,4.36,,2228319
+10074-G5,C534883,,"Carcinoma, Hepatocellular",MESH:D006528,,MYC,4.14,,12029619|15565109|9029167
+10074-G5,C534883,,"Carcinoma, Merkel Cell",MESH:D015266,,MYC,6.52,,25277525
+10074-G5,C534883,,"Carcinoma, Non-Small-Cell Lung",MESH:D002289,,MYC,4.60,,24688052
+10074-G5,C534883,,"Cardiomyopathy, Hypertrophic",MESH:D002312,,MYC,5.11,,22000973
+"10,10-bis(4-pyridinylmethyl)-9(10H)-anthracenone",C112297,,"Atrial Fibrillation, Familial, 3",MESH:C563817,,KCNQ1,7.44,607554,
+"10,10-bis(4-pyridinylmethyl)-9(10H)-anthracenone",C112297,,Developmental Disabilities,MESH:D002658,,KCNQ2,5.85,,20805988
+"10,10-bis(4-pyridinylmethyl)-9(10H)-anthracenone",C112297,,"Diabetes Mellitus, Type 2",MESH:D003924,,KCNQ1,5.06,,18711366|18711367|26551672
