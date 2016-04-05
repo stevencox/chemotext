@@ -313,6 +313,11 @@ object Processor {
         words.foreach { word =>
           textPos = originalTextPos
           tokens.foreach { token =>
+
+            if (token.indexOf ("carboxamide") > -1) {
+              logger.debug (s"list[$list] word[$word] tok[$token]")
+            }
+
             if (token.equals (word)) {
               val features = new WordFeature (word, docPos + textPos, paraPos, sentPos + sentenceIndex )
               result.add ( features )
@@ -335,7 +340,7 @@ object Processor {
   /**
     * Prep vocabulary terms by lower casing, removing non alpha strings and other dross.
     */
-  def getDistinctAlpha (terms : RDD[String]) : List[String] = {
+  def cleanWord (terms : RDD[String]) : List[String] = {
     terms.filter { text =>
       val lower = text.replaceAll("-", "")
       (! ( lower forall Character.isDigit) ) && 
@@ -452,26 +457,27 @@ object Processor {
     AC      : RDD[(String, String, Int)],
     meshXML : String
   ) = {
-
     logger.info ("Checking vocabulary...")
     var vocab = VocabFactory.getVocabulary (meshXML)
-    if (true) { //! vocab.extended) {
+    if (! vocab.extended) {
 
       logger.info ("Extending basic (MeSH) vocabulary with terms from CTD...")
-      // AB -> _1, _4
-      // BC -> _1, _3
-      // AC -> _1, _4
-
-      val A = vocab.A.union (getDistinctAlpha (AB.map { e => e._1 })).distinct.filter (!_.equals ("apoptosis"))
-      val B = vocab.B.union (getDistinctAlpha (AB.map { e => e._2 })).distinct
-      val C = vocab.C.union (getDistinctAlpha (AC.map { e => e._2 })).distinct
-
       vocab = new Vocabulary (
-        A.toList,
-        B.toList,
-        C.toList,
-        true)
 
+        A = vocab.A.union (cleanWord (AB.map { e => e._1 })).
+          distinct.filter (!_.equals ("apoptosis")),
+
+        B = vocab.B.
+          union (cleanWord (AB.map { e => e._2 })).
+          union (cleanWord (BC.map { e => e._1 })).
+          distinct,
+
+        C = vocab.C.union (cleanWord (AC.map { e => e._2 })).
+          distinct,
+
+        extended = true)
+
+      // Cache the extended vocabulary.
       VocabFactory.writeJSON (vocab)
     }
     vocab
