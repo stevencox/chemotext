@@ -2,22 +2,50 @@
 
 set +x
 
+# SPARK_HOME=$SPARK_HOME MESOS_MASTER=$MESOS_MASTER bin/run pipeline-prod
+
 STARS_HOME=/projects/stars
 source $STARS_HOME/app/evry/conf/env.sh
 APP_HOME=$STARS_HOME/app/chemotext
 PUBMEDC=$STARS_HOME/var/pubmed/articles
 MESHXML=$STARS_HOME/var/pubmed/mesh/desc2016_2.xml
-CTDPATH=$STARS_HOME/var/pubmed/ctd/CTD_chemicals_diseases.csv
+CTDACPATH=$STARS_HOME/var/pubmed/ctd/CTD_chemicals_diseases.csv
+CTDABPATH=$STARS_HOME/var/pubmed/ctd/CTD_chem_gene_ixns.csv
+CTDBCPATH=$STARS_HOME/var/pubmed/ctd/CTD_genes_diseases.csv
 SAMPLESIZE=0.1
+OUTPUTPATH=output
+
 cd $APP_HOME
 
-$SPARK_HOME/bin/spark-submit \
+export MESOS_MASTER=stars-c1.edc.renci.org:5050
+echo mesos master: $MESOS_MASTER
+echo spark home: $SPARK_HOME
+
+set -x
+
+SPARK_HOME=$SPARK_HOME MESOS_MASTER=$MESOS_MASTER $SPARK_HOME/bin/spark-submit \
+    --verbose \
     --class "org.chemotext.PipelineApp" \
-    --master $MESOS_MASTER \
-    --executor-memory 40G \
+    --master spark://$MESOS_MASTER \
+    --executor-memory 70G \
     --total-executor-cores 200 \
     --num-executors 20  \
     --driver-memory 5G \
     --conf spark.task.cpus=10 \
+    --conf spark.driver.memory=5G \
     --conf spark.default.parallelism=200 \
-    $(find $PWD -name "*assembly*.jar" -print | grep scala ) "Chemotext:Pipeline[Scala]" $APP_HOME $PUBMEDC $MESHXML $SAMPLESIZE $CTDPATH
+    --conf spark.driver.maxResultSize=4G \
+    $(find $PWD -name "*assembly*.jar" -print | grep scala ) \
+    "Chemotext:Pipeline[Scala]" \
+    $APP_HOME \
+    $PUBMEDC \
+    $MESHXML \
+    $SAMPLESIZE \
+    $CTDACPATH \
+    $CTDABPATH \
+    $CTDBCPATH \
+    $OUTPUTPATH
+
+set +x
+
+exit 0
