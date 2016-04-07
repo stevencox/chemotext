@@ -18,15 +18,17 @@ OUTPUTPATH=output
 cd $APP_HOME
 
 export MESOS_MASTER=stars-c1.edc.renci.org:5050
+export MESOS_MASTER=$(hostname):5050
 echo mesos master: $MESOS_MASTER
 echo spark home: $SPARK_HOME
 
-set -x
+#SPARK_HOME=$SPARK_HOME MESOS_MASTER=$MESOS_MASTER 
+#     --master spark://$MESOS_MASTER \
 
-SPARK_HOME=$SPARK_HOME MESOS_MASTER=$MESOS_MASTER $SPARK_HOME/bin/spark-submit \
+o () {
+$SPARK_HOME/bin/spark-submit \
     --verbose \
     --class "org.chemotext.PipelineApp" \
-    --master spark://$MESOS_MASTER \
     --executor-memory 70G \
     --total-executor-cores 200 \
     --num-executors 20  \
@@ -45,7 +47,8 @@ SPARK_HOME=$SPARK_HOME MESOS_MASTER=$MESOS_MASTER $SPARK_HOME/bin/spark-submit \
     $CTDABPATH \
     $CTDBCPATH \
     $OUTPUTPATH
+}
 
-set +x
+o
 
 exit 0
