@@ -12,8 +12,8 @@ MESHXML=$STARS_HOME/var/pubmed/mesh/desc2016_2.xml
 CTDACPATH=$STARS_HOME/var/pubmed/ctd/CTD_chemicals_diseases.csv
 CTDABPATH=$STARS_HOME/var/pubmed/ctd/CTD_chem_gene_ixns.csv
 CTDBCPATH=$STARS_HOME/var/pubmed/ctd/CTD_genes_diseases.csv
+OUTPUTPATH=$STARS_HOME/var/chemotext/output
 SAMPLESIZE=0.1
-OUTPUTPATH=output
 
 cd $APP_HOME
 
@@ -23,7 +23,7 @@ echo mesos master: $MESOS_MASTER
 echo spark home: $SPARK_HOME
 
 #SPARK_HOME=$SPARK_HOME MESOS_MASTER=$MESOS_MASTER 
-#     --master spark://$MESOS_MASTER \
+#     --master spark://$MESOS_MASTER \ (don't do this.)
 
 o () {
 $SPARK_HOME/bin/spark-submit \

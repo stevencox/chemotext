@@ -159,6 +159,7 @@ object Processor {
 
     val outputDir = new File (outputPath)
     if (! outputDir.isDirectory ()) {
+      logger.debug (s"Creating directory $outputPath")
       outputDir.mkdirs ()
     }
     JSONUtils.writeJSON (quantified, outputPath + File.separator + quantified.fileName + ".json")
@@ -304,7 +305,7 @@ object Processor {
     docPos  : Int,
     paraPos : Int,
     sentPos : Int,
-    list : String) : List[WordFeature] =
+    list    : String) : List[WordFeature] =
   {
     logger.debug ("text-> " + text.mkString (" "))
     var textPos = 0
@@ -317,11 +318,11 @@ object Processor {
         words.foreach { word =>
           textPos = originalTextPos
           tokens.foreach { token =>
-
+            /*
             if (token.indexOf ("carboxamide") > -1) {
               logger.debug (s"list[$list] word[$word] tok[$token]")
             }
-
+            */
             if (token.equals (word)) {
               val features = new WordFeature (word, docPos + textPos, paraPos, sentPos + sentenceIndex )
               result.add ( features )
@@ -675,7 +676,7 @@ class PipelineContext (
   ctdACPath       : String = "../data/pubmed/ctd/CTD_chemicals_diseases.csv",
   ctdABPath       : String = "../data/pubmed/ctd/CTD_chem_gene_ixns.csv",
   ctdBCPath       : String = "../data/pubmed/ctd/CTD_genes_diseases.csv",
-  sampleSize      : Double = 0.01,
+  sampleSize      : Double = 0.01,  
   outputPath      : String = "output")
 {
   val logger = LoggerFactory.getLogger ("PipelineContext")
@@ -706,28 +707,13 @@ class PipelineContext (
     val articleRegex = new Regex (".*.fxml")
     val articleList = getFileList (articleRootDir, articleRegex)
 
-    logger.debug (s"Article List: $articleList")
-
     val corpusPath = "pmc_corpus.txt"
     val vectorModelPath = "pmc_w2v.model"
 
-    /*
-    var model : Word2VecModel = null
-    if (Files.exists(Paths.get(vectorModelPath))) {
-      model = Word2VecModel.load(sparkContext, vectorModelPath)
-    } else {
-      if (! Files.exists (Paths.get (corpusPath))) {
-        Processor.createCorpus (articleList, corpusPath)
-      }
-      val words = sparkContext.textFile (corpusPath).map { e => e.split (" ").toList }
-      model = Processor.vectorizeCorpus (words)
-      model.save(sparkContext, vectorModelPath)
-    }
-     */
-
-    val AB = Processor.getCSVFields (sparkContext, ctdABPath, sampleSize, 0, 3, 1)
-    val BC = Processor.getCSVFields (sparkContext, ctdBCPath, sampleSize, 0, 2, 2)
-    val AC = Processor.getCSVFields (sparkContext, ctdACPath, sampleSize, 0, 3, 3)
+    val ctdSampleSize = 1.0
+    val AB = Processor.getCSVFields (sparkContext, ctdABPath, ctdSampleSize, 0, 3, 1)
+    val BC = Processor.getCSVFields (sparkContext, ctdBCPath, ctdSampleSize, 0, 2, 2)
+    val AC = Processor.getCSVFields (sparkContext, ctdACPath, ctdSampleSize, 0, 3, 3)
 
     Processor.executeChemotextPipeline (
       articlePaths = sparkContext.parallelize (articleList),
@@ -764,7 +750,7 @@ object PipelineApp {
     logger.info (s"ctdACPath      : $ctdACPath")
     logger.info (s"ctdABPath      : $ctdABPath")
     logger.info (s"ctdBCPath      : $ctdBCPath")
-    logger.info (s"outputPath      : $outputPath")
+    logger.info (s"outputPath     : $outputPath")
 
     val conf = new SparkConf().setAppName(appName)
     val sc = new SparkContext(conf)
