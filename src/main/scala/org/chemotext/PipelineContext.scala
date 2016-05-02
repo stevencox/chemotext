@@ -1,12 +1,18 @@
 package org.chemotext
 
+import banner.types.Sentence
 import java.io.File
 import java.io.PrintWriter
 import java.io.BufferedWriter
 import java.io.IOException
+import java.io.FileReader
 import java.io.FileWriter
+import java.io.InputStream
+import java.io.FileInputStream
+import java.io.BufferedReader
 import java.nio.file.{Paths, Files}
 import java.text.BreakIterator
+import java.util.Collections
 import java.util.Locale
 import java.util.Date
 import org.apache.spark.SparkConf
@@ -32,19 +38,14 @@ import scala.collection.mutable.ListBuffer
 import scala.compat.Platform
 import scala.util.matching.Regex
 import scala.xml.XML
+import scala.util.control.Breaks._
 
-/**
-
-  ftp://ftp.ncbi.nlm.nih.gov/pub/lu/PubTator/
-
-  // pubchem
-  // tmChem - use their sourcecode
-  // pubtator
-  // dnorm
-  // chebi
-  // ftp://ftp.ncbi.nih.gov/pubchem/Substance/Daily/2016-03-17/XML/
-
-  */
+case class Position (
+  var document  : Int = 0,
+  var text      : Int = 0,
+  var paragraph : Int = 0,
+  var sentence  : Int = 0
+)
 
 /***
  * Processor for searching articles for terms.
@@ -68,18 +69,13 @@ object Processor {
     sentDist : Double,
     code     : Int
   )
-  case class WordFeature (
-    word    : String,
-    docPos  : Int,
-    paraPos : Int,
-    sentPos : Int
-  )
   case class Paragraph (
     sentences : List[String]
   )
   case class QuantifiedArticle (
     fileName   : String,
     date       : String,
+    id         : String,
     generator  : String,
     raw        : String,
     paragraphs : List[Paragraph],
@@ -90,6 +86,12 @@ object Processor {
     BC         : List[Binary] = null,
     AC         : List[Binary] = null,
     ABC        : List[Triple] = null
+  )
+
+  case class QuantifierConfig (
+    article   : String,
+    meshXML   : String,
+    lexerConf : TmChemLexerConf
   )
 
   /**
@@ -146,6 +148,7 @@ object Processor {
     val quantified = QuantifiedArticle (
       fileName   = article.fileName,
       date       = article.date,
+      id         = article.id,
       generator  = article.generator,
       raw        = article.raw,
       paragraphs = article.paragraphs,
@@ -169,15 +172,16 @@ object Processor {
   /**
     * Derive A->B, B->C, A->C relationships from raw word positions
     */
-  def findPairs (article : String, meshXML : String) : QuantifiedArticle = {
-    findPairs (quantifyArticle (article, meshXML))
+  def findPairs (config : QuantifierConfig) : QuantifiedArticle = {
+    findPairs (quantifyArticle (config))
   }
 
   def findPairs (article : QuantifiedArticle) : QuantifiedArticle = {
-    val threshold = 300
+    val threshold = 100
     QuantifiedArticle (
       fileName   = article.fileName,
       date       = article.date,
+      id         = article.id,
       generator  = article.generator,
       raw        = article.raw,
       paragraphs = article.paragraphs,
@@ -186,7 +190,7 @@ object Processor {
       C          = article.C,
       AB         = findCooccurring (article.A, article.B, threshold, 1), // AB,
       BC         = findCooccurring (article.B, article.C, threshold, 2), // BC,
-      AC         = findCooccurring (article.A, article.C, threshold, 3))  // AC
+      AC         = findCooccurring (article.A, article.C, threshold, 3)) // AC
   }
 
   /**
@@ -220,58 +224,55 @@ object Processor {
     }
   }
 
-  /**
-    * Quantify an article, searching for words and producing an output 
-    * vector showing locations of A, B, and C terms in the text.
-    */
-  def quantifyArticle (article : String, meshXML : String) : QuantifiedArticle = {
-
+  def quantifyArticle (config : QuantifierConfig) : QuantifiedArticle = {
     var A : List[WordFeature] = List ()
     var B : List[WordFeature] = List ()
     var C : List[WordFeature] = List ()
-
-    val vocab = VocabFactory.getVocabulary (meshXML)
+    val vocab = VocabFactory.getVocabulary (config.meshXML)
     logger.debug (s"""Sample vocab:
-         A-> ${vocab.A.slice (1, 20)}
-         B-> ${vocab.B.slice (1, 20)}
-         C-> ${vocab.C.slice (1, 20)}""")
-    logger.info (s"@-article: ${article}")
-
-    var docPos = 0
-    var paraPos = 0
-    var sentPos = 0
-
+         A-> ${vocab.A.slice (1, 10)}...
+         B-> ${vocab.B.slice (1, 10)}...
+         C-> ${vocab.C.slice (1, 10)}...""")
+    logger.info (s"@-article: ${config.article}")
+    var position = Position ()
     val paraBuf = new ListBuffer [Paragraph] ()
     val rawBuf = StringBuilder.newBuilder
+    var date : String = null
+    var id   : String = null
     try {
-      val xml = XML.loadFile (article)
-      val paragraphs = (xml \\ "p")
-
+      val A_lexer = new TmChemLexer (config.lexerConf)
+      val B_lexer = new BMeshLexer (config.meshXML)
+      val C_lexer = new CMeshLexer (config.meshXML)
+      val parser = new PubMedArticleParser (config.article)
+      id = parser.getId ()
+      date = parser.getDate ()
+      val paragraphs = parser.getParagraphs ()
       paragraphs.foreach { paragraph =>
         // replace non ascii characters
         val raw = paragraph.text.replaceAll ("[^\\x00-\\x7F]", "");
         val text = getSentences (raw)
 
-        A = A.union (getDocWords (vocab.A.toArray, text.toArray, docPos, paraPos, sentPos, "A"))
-        B = B.union (getDocWords (vocab.B.toArray, text.toArray, docPos, paraPos, sentPos, "B"))
-        C = C.union (getDocWords (vocab.C.toArray, text.toArray, docPos, paraPos, sentPos, "C"))
+        A = A.union (getDocWords (vocab.A.toArray, text.toArray, position, "A", A_lexer))
+        B = B.union (getDocWords (vocab.B.toArray, text.toArray, position, "B", B_lexer))
+        C = C.union (getDocWords (vocab.C.toArray, text.toArray, position, "C", C_lexer))
 
-        sentPos += text.size
-        docPos += paragraph.text.length
-        paraPos += 1
+        List( A_lexer, B_lexer, C_lexer ).map { lexer =>
+          lexer.update (paragraph.text.length, text.size (), 1)
+        }
 
         rawBuf.append (raw)
         rawBuf.append ("\n")
         paraBuf += new Paragraph (text)
       }
-
     } catch {
       case e: Exception =>
-        logger.error (s"Error reading json $e")
+        logger.error (s"Error in quantify article  $e")
+        e.printStackTrace ()
     }
     QuantifiedArticle (
-      fileName   = article.replaceAll (".*/", ""),
-      date       = new Date().toString (),
+      fileName   = config.article.replaceAll (".*/", ""),
+      date       = date,
+      id         = id,
       generator  = "ChemoText2",
       raw        = rawBuf.toString,
       paragraphs = paraBuf.toList,
@@ -300,43 +301,52 @@ object Processor {
     * Record locations of words within the document.
     */
   def getDocWords (
-    words   : Array[String],
-    text    : Array[String],
-    docPos  : Int,
-    paraPos : Int,
-    sentPos : Int,
-    list    : String) : List[WordFeature] =
+    words    : Array[String],
+    text     : Array[String],
+    position : Position,
+    listId   : String,
+    lexer    : Lexer) : List[WordFeature] =
   {
-    logger.debug ("text-> " + text.mkString (" "))
-    var textPos = 0
-    var sentenceIndex = 0
     var result : ListBuffer[WordFeature] = ListBuffer ()
-    if (words != null && text != null) {
-      text.foreach { sentence => 
-        val tokens = sentence.split (" ").map (_.trim ().replaceAll ("[\\./]", ""))
-        var originalTextPos = textPos
-        words.foreach { word =>
-          textPos = originalTextPos
-          tokens.foreach { token =>
-            /*
-            if (token.indexOf ("carboxamide") > -1) {
-              logger.debug (s"list[$list] word[$word] tok[$token]")
-            }
-            */
-            if (token.equals (word)) {
-              val features = new WordFeature (word, docPos + textPos, paraPos, sentPos + sentenceIndex )
-              result.add ( features )
-              logger.debug (
-                s"**adding word:$word dpos:$docPos tpos:$textPos token:$token " +
-                  s" ppos:$paraPos spos:$sentPos sidx:$sentenceIndex")
-            }
-            textPos += token.length () + 1
-          }
-        }
-        sentenceIndex += 1
-      }
+    text.foreach { sentence =>
+      lexer.findTokens (sentence, result)
     }
     result.toList
+  }
+
+  def findTokens (
+    sentence      : String,
+    words         : Array[String],
+    origTextPos   : Int,
+    position      : Position,
+    sentenceIndex : Int,
+    features      : ListBuffer[WordFeature]) =
+  {
+    val tokens = sentence.split (" ").map (_.trim ().replaceAll ("[\\./]", ""))
+    words.foreach { word =>
+      breakable {
+        tokens.foreach { token =>
+          if (token.equals (word)) {
+
+            val textPos = position.text + sentence.indexOf (token)
+            features.add (new WordFeature (
+              word    = word,
+              docPos  = position.document + textPos,
+              paraPos = position.paragraph,
+              sentPos = position.sentence ))
+
+            position.sentence += 1
+            position.text += sentence.length ()
+
+            logger.debug (
+              s"** adding word:$word dpos:${position.document} tpos:$textPos token:$token " +
+                s" ppos:${position.paragraph} spos:${position.sentence} sidx:$sentenceIndex")
+
+            break
+          }
+        }
+      }
+    }
   }
 
   val ordinary=(('a' to 'z') ++ ('A' to 'Z') ++ ('0' to '9')).toSet
@@ -421,9 +431,8 @@ object Processor {
       ( formKey (item._1, item._2), (0) )
     }
     left.foreach { l =>
-      println (s"  ------88> $l")
+      //println (s"  ------88> $l")
     }
-
     R.join (left).map { item =>
       val k = splitKey (item._1)
       Binary ( k(0), k(1), item._2._1._1, item._2._1._2, item._2._1._3, item._2._1._4 )
@@ -588,7 +597,7 @@ object Processor {
     logger.info ("Joining AB binaries to generated binary predictions")
     val abBinaries = joinBinaries (AB, fb)
     AB.foreach { b =>
-      logger.debug (s" ------> $b")
+      //logger.debug (s" ------> $b")
     }
 
     logger.debug ("Joining BC binaries to generated binary predictions")
@@ -629,18 +638,28 @@ object Processor {
    * The approach below finds pairs only if they occur within an article.
    * More cohesive, less hits, etc.
    */
-  def generatePairs (articlePaths : RDD[String], meshXML : String, sampleSize : Double) = {
+  def generatePairs (
+    articlePaths : RDD[String],
+    meshXML      : String,
+    sampleSize   : Double,
+    lexerConf    : TmChemLexerConf) = 
+  {
     logger.info ("== Analyze articles; calculate binaries.")
     articlePaths.map { a =>
       ( a, meshXML )
     }.sample (false, sampleSize, 1234).map { article =>
-      findPairs (article._1, article._2)
+      findPairs (QuantifierConfig (
+        article   = article._1,
+        meshXML   = article._2,
+        lexerConf = lexerConf))
+      //findPairs (article._1, article._2)
     }.cache ()
   }
 
   def executeChemotextPipeline (
     articlePaths : RDD[String],
     meshXML      : String,
+    lexerConf    : TmChemLexerConf,
     AB           : RDD[(String, String, Int)],
     BC           : RDD[(String, String, Int)],
     AC           : RDD[(String, String, Int)],
@@ -654,7 +673,7 @@ object Processor {
       logger.debug (s"--> $a")
     }
 
-    val articles = generatePairs (articlePaths, meshXML, sampleSize)
+    val articles = generatePairs (articlePaths, meshXML, sampleSize, lexerConf)
 
     evaluateBinaries (articles, AB, BC, AC)
 
@@ -672,12 +691,14 @@ class PipelineContext (
   sparkContext    : SparkContext,
   appHome         : String = "../data/pubmed",
   meshXML         : String = "../data/pubmed/mesh/desc2016.xml",
+  lexerConf       : TmChemLexerConf,
   articleRootPath : String = "../data/pubmed/articles",
   ctdACPath       : String = "../data/pubmed/ctd/CTD_chemicals_diseases.csv",
   ctdABPath       : String = "../data/pubmed/ctd/CTD_chem_gene_ixns.csv",
   ctdBCPath       : String = "../data/pubmed/ctd/CTD_genes_diseases.csv",
   sampleSize      : Double = 0.01,  
-  outputPath      : String = "output")
+  outputPath      : String = "output"
+)
 {
   val logger = LoggerFactory.getLogger ("PipelineContext")
 
@@ -716,13 +737,14 @@ class PipelineContext (
     val AC = Processor.getCSVFields (sparkContext, ctdACPath, ctdSampleSize, 0, 3, 3)
 
     Processor.executeChemotextPipeline (
-      articlePaths = sparkContext.parallelize (articleList),
-      meshXML      = meshXML,
-      AB           = AB,
-      BC           = BC,
-      AC           = AC,
-      sampleSize   = sampleSize,
-      outputPath   = outputPath)
+      articlePaths   = sparkContext.parallelize (articleList),
+      meshXML        = meshXML,
+      lexerConf      = lexerConf,
+      AB             = AB,
+      BC             = BC,
+      AC             = AC,
+      sampleSize     = sampleSize,
+      outputPath     = outputPath)
   }
 }
 
@@ -732,15 +754,19 @@ object PipelineApp {
 
   def main(args: Array[String]) {
 
-    val appName = args(0)
-    val appHome = args(1)
-    val articleRootPath = args(2)
-    val meshXML = args(3)
-    val sampleSize = args(4)
-    val ctdACPath = args(5)
-    val ctdABPath = args(6)
-    val ctdBCPath = args(7)
-    val outputPath = args(8)
+    val appName = args (0)
+    val appHome = args (1)
+    val articleRootPath = args (2)
+    val meshXML = args (3)
+    val sampleSize = args (4)
+    val ctdACPath = args (5)
+    val ctdABPath = args (6)
+    val ctdBCPath = args (7)
+    val outputPath = args (8)
+
+    val lexerConfigPath    = args (9)
+    val lexerCacheFile     = args (10)
+    val lexerDictPath      = args (11)
 
     logger.info (s"appName        : $appName")
     logger.info (s"appHome        : $appHome")
@@ -752,12 +778,21 @@ object PipelineApp {
     logger.info (s"ctdBCPath      : $ctdBCPath")
     logger.info (s"outputPath     : $outputPath")
 
+    logger.info (s"lexerConfigPath    : $lexerConfigPath")
+    logger.info (s"lexerCacheFile     : $lexerCacheFile")
+    logger.info (s"lexerDictPath      : $lexerDictPath")
+
     val conf = new SparkConf().setAppName(appName)
     val sc = new SparkContext(conf)
     val pipeline = new PipelineContext (
       sc,
       appHome,
       meshXML,
+      TmChemLexerConf (
+        configPath     = lexerConfigPath,
+        cacheFileName  = lexerCacheFile,
+        dictionaryPath = lexerDictPath
+      ),
       articleRootPath,
       ctdACPath,
       ctdABPath,

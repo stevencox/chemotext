@@ -1,0 +1,61 @@
+#!/bin/bash
+
+set -e
+
+# mvn-deploy --groupId org.skylr.optimizer --artifactId algorithms --version 0.1-SNAPSHOT
+
+repository=https://las-repo.oscar.ncsu.edu/nexus/content/repositories/snapshots/
+repository_id=snapshot-deployment
+
+while test -n "$1"; do
+    case "$1" in
+        --artifact)   shift; artifact=$1; shift;;
+        --groupId)    shift; groupId=$1; shift;;
+        --artifactId) shift; artifactId=$1; shift;;
+        --version)    shift; version=$1; shift;;
+        *)            echo "ERROR: Unknown argument to $0: " + $1; exit 1;;
+    esac
+done
+
+# The repo currently uses a self signed SSL certificate.
+r () {
+mvn -e deploy:deploy-file \
+    -Dmaven.wagon.http.ssl.insecure=true \
+    -Dmaven.wagon.http.ssl.allowall=true \
+    -Durl=${repository}  \
+    -DrepositoryId=${repository_id} \
+    -Dfile=${artifactId}-${version}.jar \
+    -DgroupId=${groupId} \
+    -DartifactId=${artifactId} \
+    -Dversion=${version}
+}
+
+
+LIBS=/Users/scox/dev/tmChemM1-0.0.2/libs
+
+publish () {
+    jarName=$1
+    groupId=$2
+    artifactId=$3
+    version=$4
+    mvn org.apache.maven.plugins:maven-install-plugin:2.5.2:install-file \
+        -Dfile=$LIBS/${jarName}.jar \
+        -DgroupId=${groupId} \
+        -DartifactId=${artifactId} \
+        -Dversion=${version} \
+        -Dpackaging=jar
+}
+
+
+publish CHEMDNER ncbi.banner CHEMDNER 1.0
+publish banner ncbi.banner banner 1.0
+publish dragontool drexel.dragontool dragontool 1.0
+publish mallet ncbi.banner mallet 1.0
+publish mallet-deps ncbi.banner mallet-deps 1.0
+publish heptag gate heptag 1.0
+publish trove-3.0.3 org.gnu trove 3.0.3
+pubilsh bioc org.bioc bioc 1.0
+
+#    -DlocalRepositoryPath=path-to-specific-local-repo
+
+exit 0

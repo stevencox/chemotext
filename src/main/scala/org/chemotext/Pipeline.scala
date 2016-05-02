@@ -33,7 +33,7 @@ class Pipeline (theSparkConf : SparkConf) extends Serializable {
      ** We create a chemotext context connected to the current
      ** spark context.
      **********************************************************/
-    new PipelineContext (sc, appHome, meshXML, articleRootPath, ctdPath, sampleSize)
+    new PipelineContext (sc, appHome, meshXML, null, articleRootPath, ctdPath, sampleSize)
   }
 
   /***

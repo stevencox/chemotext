@@ -72,9 +72,9 @@ object VocabFactory {
       implicit val formats = DefaultFormats
       vocabulary = json.extract [Vocabulary]
       mesh = new MeSH ()
-      logger.debug (s"vocab.A => ${vocabulary.A}")
-      logger.debug (s"vocab.B => ${vocabulary.B}")
-      logger.debug (s"vocab.C => ${vocabulary.C}")
+      //logger.debug (s"vocab.A => ${vocabulary.A}")
+      //logger.debug (s"vocab.B => ${vocabulary.B}")
+      //logger.debug (s"vocab.C => ${vocabulary.C}")
     }
     vocabulary
   }
