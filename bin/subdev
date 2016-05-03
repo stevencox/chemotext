@@ -34,7 +34,7 @@ test () {
     dev
 
     DATA_HOME=$STARS_HOME/chemotext/data
-    TMCHEM_HOME=$STARS_HOME/data/tmchem
+    TMCHEM_HOME=$APP_HOME/data/tmchem
     SAMPLESIZE=1
     env=test
 }
@@ -133,7 +133,7 @@ $SPARK_HOME/bin/spark-submit \
     --conf spark.task.cpus=$ARG_TASK_CPUS \
     --conf spark.default.parallelism=$ARG_DEFAULT_PARALLELISM \
     --conf spark.driver.maxResultSize=$ARG_MAX_RESULT_SIZE \
-    $(find $APP_HOME -name "*assembly*.jar" -print | grep scala ) \
+    $( find $APP_HOME -name "*assembly*.jar" -print | grep scala ) \
     $FRAMEWORK_NAME \
     $APP_HOME \
     $PUBMEDC \
@@ -146,4 +146,3 @@ $SPARK_HOME/bin/spark-submit \
     $NORMALIZER_CONFIGPATH \
     $NORMALIZER_CACHEFILE \
     $NORMALIZER_DICTIONARY
-
