@@ -9,17 +9,18 @@ fi
 
 echo STARS_HOME: $STARS_HOME
 
-SPARK_HOME=$STARS_HOME/spark/current
-MESOS_MASTER=local[2]
-APP_HOME=$STARS_HOME/chemotext
-MESHXML=$STARS_HOME/data/pubmed/mesh/desc2016_2.xml
 FRAMEWORK_NAME="Chemotext:Pipeline[Scala]"
 
 dev () {
+    APP_HOME=$STARS_HOME/chemotext
+    SPARK_HOME=$STARS_HOME/spark/current
     DATA_HOME=$STARS_HOME/data
+    MESHXML=$STARS_HOME/data/pubmed/mesh/desc2016_2.xml
     TMCHEM_HOME=$STARS_HOME/data/tmchem
     SAMPLESIZE=0.001
     env=dev
+
+    MESOS_MASTER=local[2]
 
     ARG_MESOS_MASTER="--master $MESOS_MASTER"
     ARG_EXECUTOR_MEMORY=10G
@@ -39,7 +40,10 @@ test () {
     env=test
 }
 prod () {
-    DATA_HOME=$STARS_HOME/var/data
+    APP_HOME=$STARS_HOME/app/chemotext
+    SPARK_HOME=$STARS_HOME/stack/spark/current
+    DATA_HOME=$STARS_HOME/var/chemotext
+    MESHXML=$DATA_HOME/mesh/desc2016_2.xml
     TMCHEM_HOME=$DATA_HOME/tmchem
     SAMPLESIZE=0.001
     env=prod
@@ -48,7 +52,7 @@ prod () {
     ARG_EXECUTOR_MEMORY=70G
     ARG_TOTAL_EXECUTOR_CORES=200
     ARG_NUM_EXECUTORS=20
-    ARG_DRIVER_MEMORY=15G
+    ARG_DRIVER_MEMORY=3G
     ARG_TASK_CPUS=10
     ARG_DEFAULT_PARALLELISM=200
     ARG_MAX_RESULT_SIZE=4G
@@ -59,7 +63,9 @@ prod () {
     echo spark home: $SPARK_HOME
 }
 
-test
+#test
+prod 
+
 
 set -x
 PUBMEDC=$DATA_HOME/pubmed/articles
@@ -69,13 +75,11 @@ CTDBCPATH=$DATA_HOME/ctd/CTD_genes_diseases.csv
 NORMALIZER_CONFIGPATH=$TMCHEM_HOME/config/banner_JOINT_${env}.xml
 NORMALIZER_CACHEFILE=$TMCHEM_HOME/cacheFile.tsv
 NORMALIZER_DICTIONARY=$TMCHEM_HOME/data/dict.txt
-OUTPUTPATH=output
+OUTPUTPATH=$DATA_HOME/output
 set +x
 
 genTmChemConfig () {
-    if [[ -f $NORMALIZER_CONFIGPATH ]]; then
-        return
-    fi
+    rm -rf $NORMALIZER_CONFIGPATH
     cat <<EOF >> $NORMALIZER_CONFIGPATH
 <?xml version="1.0" encoding="iso-8859-1"?>
 <banner-configuration>
@@ -113,12 +117,6 @@ EOF
 }
 
 genTmChemConfig
-
-# var/chemotext
-#      pubmed/articles
-#      pubmed/mesh
-#      tmchem
-#      ctd
 
 cd $APP_HOME
 export JAVA_OPTS="-Xmx10G -Xms10G"
