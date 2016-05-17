@@ -186,19 +186,32 @@ def process_article (item):
 
     sentence_detector = nltk.data.load('tokenizers/punkt/english.pickle')
 
-    def vocab_nlp (words, text, article, doc_pos):
-        result = None
+    def vocab_nlp (words, text, article):
+        result = []
         if words and text:
             text_pos = 0
             sentences = sentence_detector.tokenize(text.strip())
             for sentence in sentences:
                 for term in words:
+                    start = 0
+                    while True:
+                        index = sentence.find (term, start)
+                        if index > -1:
+                            start = index + 1
+                            result.append ( ( term, index ) )
+                        else:
+                            break
+                        
+                        
+                            ''''
+                    # TODO: add code to handle multi word vocab terms
                     if sentence.find (term) > -1:
                         tokens = word_tokenize (sentence)
                         for token in tokens:
                             if term == token:
-                                result.append ( ( term, doc_pos + text_pos ) )
+                                result.append ( ( term, text_pos ) )
                             text_pos = text_pos + 1
+                            '''
         return result
         
     try:
@@ -218,16 +231,22 @@ def process_article (item):
             if paragraphs is not None:
                 for para in paragraphs:
                     try:
-                        text = "".join( [ "" if para.text is None else para.text ] +
-                                        [ et.tostring (e, encoding='UTF-8', method='text') for e in para.getchildren() ] )
+                        text = ""
+                        try:
+                            text = "".join( [ "" if para.text is None else para.text ] +
+                                            [ et.tostring (e, encoding='UTF-8', method='text') for e in para.getchildren() ] )
+                        except:
+                            text = para.text
                         text = delete_non_unicode_chars (text)
                         text = text.decode ("utf8", "ignore")
 
                         a.extend (vocab_nlp (mesh.chemicals, text, article))
                         b.extend (vocab_nlp (mesh.proteins, text, article))
                         c.extend (vocab_nlp (mesh.diseases, text, article))
-                        results.append (article, a, b, c)
+
+                        results.append ( (article, a, b, c) )
                     except:
+                        print "Ignoring exception processing paragraph"
                         traceback.print_exc ()
     except:
         traceback.print_exc ()
@@ -268,18 +287,23 @@ def find_relationships (host, app_home, articles, mesh_xml):
     articles = sc.parallelize (article_list, 100).sample(False, 0.001).cache ()
     logger.info ("Processing {0} articles".format (articles.count ()))
 
-    generate_corpus (articles, app_home)
-    model = get_word2vec_model (sc, app_home)
-    get_synonyms (model, mesh_xml, app_home)
+#    generate_corpus (articles, app_home)
+#    model = get_word2vec_model (sc, app_home)
+#    get_synonyms (model, mesh_xml, app_home)
 
 
-    e_mesh = os.path.join (app_home, "cache", extended_mesh)
-    articles = articles.map (lambda a : ( a, e_mesh ), 200)
+#    e_mesh = os.path.join (app_home, "cache", extended_mesh)
+#    articles = articles.map (lambda a : ( a, e_mesh ), 200)
 
-    logger.info ("PARTITIONS================> {0} ".format (articles.getNumPartitions ()))
-    logger.info ("intermediate: {0} articles to process".format (articles.count ()))
+    articles = articles.map (lambda a : ( a, mesh_xml ), 200)
+
+    logger.info ("Using {0} partitions.".format (articles.getNumPartitions ()))
+    logger.info ("{0} articles to process".format (articles.count ()))
     articles = articles.flatMap (process_article).cache ()
 
+    a = articles.collect()
+    for t in a:
+        print t
 
 def delete_non_unicode_chars (text):
     c = 0
@@ -303,8 +327,16 @@ def delete_xml_char_refs (text):
 def main ():
     print sys.argv
     prog, host, app_home, articles, mesh_xml = sys.argv
+    logger.info ("""
+    prog: {0}
+    host: {1}
+app_home: {2}
+articles: {3}
+mesh_xml: {4}""".format (prog, host, app_home, articles, mesh_xml))
+
     find_relationships (host, app_home, articles, mesh_xml)
-    #print process_article (articles, mesh_xml)
+    
+    #print process_article ( (articles, mesh_xml) )
 
 main ()
 
