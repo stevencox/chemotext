@@ -240,7 +240,8 @@ object Processor {
     var date : String = null
     var id   : String = null
     try {
-      val A_lexer = new TmChemLexer (config.lexerConf)
+      val A_lexer = new AMeshLexer (config.meshXML)
+      //val A_lexer = new TmChemLexer (config.lexerConf)
       val B_lexer = new BMeshLexer (config.meshXML)
       val C_lexer = new CMeshLexer (config.meshXML)
       val parser = new PubMedArticleParser (config.article)
@@ -273,7 +274,7 @@ object Processor {
       fileName   = config.article.replaceAll (".*/", ""),
       date       = date,
       id         = id,
-      generator  = "ChemoText2",
+      generator  = "ChemoText2[Scala]",
       raw        = rawBuf.toString,
       paragraphs = paraBuf.toList,
       A          = A,
@@ -312,41 +313,6 @@ object Processor {
       lexer.findTokens (sentence, result)
     }
     result.toList
-  }
-
-  def findTokens (
-    sentence      : String,
-    words         : Array[String],
-    origTextPos   : Int,
-    position      : Position,
-    sentenceIndex : Int,
-    features      : ListBuffer[WordFeature]) =
-  {
-    val tokens = sentence.split (" ").map (_.trim ().replaceAll ("[\\./]", ""))
-    words.foreach { word =>
-      breakable {
-        tokens.foreach { token =>
-          if (token.equals (word)) {
-
-            val textPos = position.text + sentence.indexOf (token)
-            features.add (new WordFeature (
-              word    = word,
-              docPos  = position.document + textPos,
-              paraPos = position.paragraph,
-              sentPos = position.sentence ))
-
-            position.sentence += 1
-            position.text += sentence.length ()
-
-            logger.debug (
-              s"** adding word:$word dpos:${position.document} tpos:$textPos token:$token " +
-                s" ppos:${position.paragraph} spos:${position.sentence} sidx:$sentenceIndex")
-
-            break
-          }
-        }
-      }
-    }
   }
 
   val ordinary=(('a' to 'z') ++ ('A' to 'Z') ++ ('0' to '9')).toSet

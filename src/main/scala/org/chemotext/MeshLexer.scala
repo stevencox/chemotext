@@ -19,8 +19,27 @@ class MeshLexer (meshXML : String) extends Lexer {
     features : ListBuffer[WordFeature]) =
   {
     val tokens = sentence.split (" ").map (_.trim ().replaceAll ("[\\./]", ""))
+
+    var index = 0
     words.foreach { word =>
       breakable {
+
+        val token = s" $word "
+        var pos = -1
+	while ({ pos = sentence.indexOf (token, index); pos } > -1) {
+          val textPos = position.text + pos + 1
+          features.add (new WordFeature (
+            word    = word,
+            docPos  = textPos, //position.document + textPos,
+            paraPos = position.paragraph,
+            sentPos = position.sentence ))
+
+          logger.debug (
+            s"** adding word:$word dpos:${position.document} tpos:$textPos token:$token " +
+              s" ppos:${position.paragraph} spos:${position.sentence}")
+	}
+
+        /*
         tokens.foreach { token =>
           if (token.equals (word)) {
 
@@ -38,6 +57,7 @@ class MeshLexer (meshXML : String) extends Lexer {
             break
           }
         }
+         */
       }
     }
     position.sentence += 1
