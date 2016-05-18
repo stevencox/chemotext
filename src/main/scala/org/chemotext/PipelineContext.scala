@@ -54,7 +54,7 @@ case class Position (
  */
 object Processor {
 
-  val logger = LoggerFactory.getLogger("Processor")
+  val logger = LoggerFactory.getLogger("Chemotext2")
 
   case class Triple (
     A : String,
