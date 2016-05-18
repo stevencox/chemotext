@@ -155,14 +155,17 @@ class TmChemLexer (conf : TmChemLexerConf) extends Lexer {
           // literally will be not quite right. But in the greater scheme, it may be the best we
           // can do since mentinon.getStart() doesn't do quite what we want.
           val textPos = position.text + sentence.indexOf (word) //mention.getStart ()
-          features.add (new WordFeature (
-            word    = word,
-            docPos  = textPos, //position.document + textPos,
-            paraPos = position.paragraph,
-            sentPos = position.sentence))
+	  
+ 	  if (word.split(" ").length < 3) {
+             features.add (new WordFeature ( 
+                word    = word,
+                docPos  = textPos, //position.document + textPos,
+                paraPos = position.paragraph,
+                sentPos = position.sentence))
 
-          val p = position
-          logger.debug (s"** adding word:$word dpos:${p.document} tpos:$textPos ppos:${p.paragraph} spos:${p.sentence}")
+             val p = position
+             logger.debug (s"** adding word:$word dpos:${p.document} tpos:$textPos ppos:${p.paragraph} spos:${p.sentence}")
+	  }
         }
         position.sentence += 1
         position.text += sentence.length ()

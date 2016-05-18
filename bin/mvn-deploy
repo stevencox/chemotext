@@ -32,6 +32,7 @@ mvn -e deploy:deploy-file \
 
 
 LIBS=/Users/scox/dev/tmChemM1-0.0.2/libs
+LIBS=/home/evryscope/tmchemlib/libs
 
 publish () {
     jarName=$1
