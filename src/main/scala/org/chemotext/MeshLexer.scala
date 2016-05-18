@@ -26,7 +26,7 @@ class MeshLexer (meshXML : String) extends Lexer {
 
         val token = s" $word "
         var pos = -1
-	while ({ pos = sentence.indexOf (token, index); pos } > -1) {
+	while ({ pos = sentence.indexOf (token, pos + 1); pos } > -1) {
           val textPos = position.text + pos + 1
           features.add (new WordFeature (
             word    = word,

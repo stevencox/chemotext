@@ -75,7 +75,8 @@ CTDBCPATH=$DATA_HOME/ctd/CTD_genes_diseases.csv
 NORMALIZER_CONFIGPATH=$TMCHEM_HOME/config/banner_JOINT_${env}.xml
 NORMALIZER_CACHEFILE=$TMCHEM_HOME/cacheFile.tsv
 NORMALIZER_DICTIONARY=$TMCHEM_HOME/data/dict.txt
-OUTPUTPATH=$DATA_HOME/output.tmchem
+OUTPUTPATH=$DATA_HOME/output.mesh.2
+#OUTPUTPATH=$DATA_HOME/output.tmchem
 set +x
 
 genTmChemConfig () {
