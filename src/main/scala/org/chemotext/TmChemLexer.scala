@@ -35,7 +35,7 @@ case class TmChemLexerConf (
 
 class TmChemLexer (conf : TmChemLexerConf) extends Lexer {
 
-  val logger = LoggerFactory.getLogger("BannerChem:TmChemLexer")
+  val logger = LoggerFactory.getLogger("TmChemLexer[Banner]")
 
   logger.debug (s"Loading lexer config from ${conf.configPath}.")
   val config = new XMLConfiguration (conf.configPath)
