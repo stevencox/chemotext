@@ -2,8 +2,6 @@
 
 set -e
 
-# mvn-deploy --groupId org.skylr.optimizer --artifactId algorithms --version 0.1-SNAPSHOT
-
 repository=https://las-repo.oscar.ncsu.edu/nexus/content/repositories/snapshots/
 repository_id=snapshot-deployment
 
@@ -18,7 +16,7 @@ while test -n "$1"; do
 done
 
 # The repo currently uses a self signed SSL certificate.
-r () {
+deadcode () {
 mvn -e deploy:deploy-file \
     -Dmaven.wagon.http.ssl.insecure=true \
     -Dmaven.wagon.http.ssl.allowall=true \
@@ -31,8 +29,9 @@ mvn -e deploy:deploy-file \
 }
 
 
-LIBS=/Users/scox/dev/tmChemM1-0.0.2/libs
 LIBS=/home/evryscope/tmchemlib/libs
+LIBS=/Users/scox/dev/tmChemM1-0.0.2/libs
+
 
 publish () {
     jarName=$1
@@ -55,7 +54,7 @@ publish mallet ncbi.banner mallet 1.0
 publish mallet-deps ncbi.banner mallet-deps 1.0
 publish heptag gate heptag 1.0
 publish trove-3.0.3 org.gnu trove 3.0.3
-pubilsh bioc org.bioc bioc 1.0
+publish bioc org.bioc bioc 1.0
 
 #    -DlocalRepositoryPath=path-to-specific-local-repo
 

@@ -10,6 +10,7 @@ import java.io.FileWriter
 import java.io.InputStream
 import java.io.FileInputStream
 import java.io.BufferedReader
+import java.io.PrintStream
 import java.nio.file.{Paths, Files}
 import java.text.BreakIterator
 import java.util.Collections
@@ -40,6 +41,36 @@ import scala.util.matching.Regex
 import scala.xml.XML
 import scala.util.control.Breaks._
 
+import opennlp.tools.sentdetect.SentenceModel
+import opennlp.tools.sentdetect.SentenceDetectorME
+
+class SentenceSegmenter {
+
+  val stream : InputStream = getClass.getResourceAsStream ("/models/en-sent.bin")
+  val model = new SentenceModel (stream);
+  val sentenceDetector = new SentenceDetectorME(model);
+
+  def segment (text : String) = {
+    sentenceDetector.sentDetect (text)
+  }
+
+}
+
+
+
+/**
+  * Defeat the fact that the version of banner used by tmChem uses System.out for logging.
+  * There's no way to configure it, so we'll intercept System.out and turn it off.
+  * Without this, processes fill up the disks on cluster worker nodes, killing the job.
+  */
+class BannerFilterPrintStream (stream: PrintStream) extends PrintStream (stream) {  
+  override def println (s : String) {
+    if (! s.startsWith ("WARNING:") && s.contains ("lists no concept")) {
+      super.print (s)
+    }
+  }
+}
+
 case class Position (
   var document  : Int = 0,
   var text      : Int = 0,
@@ -55,6 +86,8 @@ case class Position (
 object Processor {
 
   val logger = LoggerFactory.getLogger("Chemotext2")
+
+  val jython = new JythonInterpreter ()
 
   case class Triple (
     A : String,
@@ -240,8 +273,8 @@ object Processor {
     var date : String = null
     var id   : String = null
     try {
-      val A_lexer = new AMeshLexer (config.meshXML)
-      //val A_lexer = new TmChemLexer (config.lexerConf)
+      //val A_lexer = new AMeshLexer (config.meshXML)
+      val A_lexer = new TmChemLexer (config.lexerConf)
       val B_lexer = new BMeshLexer (config.meshXML)
       val C_lexer = new CMeshLexer (config.meshXML)
       val parser = new PubMedArticleParser (config.article)
@@ -282,7 +315,7 @@ object Processor {
       C          = C)
   }
 
-  def getSentences (text : String) = {
+  def getSentences0 (text : String) = {
     val buf = new ListBuffer[String] ()
     val boundary = BreakIterator.getSentenceInstance(Locale.ENGLISH)
     boundary.setText (text)
@@ -294,6 +327,16 @@ object Processor {
         val sentence = text.substring (firstIndex, lastIndex);
         buf += sentence.toLowerCase ()
       }
+    }
+    buf.toList
+  }
+
+  def getSentences (text : String) = {
+    val buf = new ListBuffer[String] ()
+    val sentenceSegmenter = new SentenceSegmenter ()
+    val sentences = sentenceSegmenter.segment (text)
+    sentences.foreach { sentence =>
+      buf += sentence.toLowerCase ()
     }
     buf.toList
   }
@@ -765,6 +808,11 @@ object PipelineApp {
       ctdBCPath,
       sampleSize.toDouble,
       outputPath)
+
+
+    System.setOut (new BannerFilterPrintStream (System.out))
+
+
     pipeline.execute ()    
   }
 }

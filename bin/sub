@@ -63,8 +63,8 @@ prod () {
     echo spark home: $SPARK_HOME
 }
 
-#test
-prod 
+test
+#prod 
 
 
 set -x
@@ -81,6 +81,7 @@ set +x
 
 genTmChemConfig () {
     rm -rf $NORMALIZER_CONFIGPATH
+    echo writing $NORMALIZER_CONFIGPATH
     cat <<EOF >> $NORMALIZER_CONFIGPATH
 <?xml version="1.0" encoding="iso-8859-1"?>
 <banner-configuration>

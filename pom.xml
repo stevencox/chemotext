@@ -54,6 +54,18 @@
   <dependencies>
 
     <dependency>
+      <groupId>org.apache.opennlp</groupId>
+      <artifactId>opennlp-tools</artifactId>
+      <version>1.6.0</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.python</groupId>
+      <artifactId>jython-standalone</artifactId>
+      <version>2.5.2</version>
+    </dependency>
+
+    <dependency>
       <groupId>ncbi.banner</groupId>
       <artifactId>banner</artifactId>
       <version>1.0</version>
@@ -228,6 +240,7 @@
         <targetPath>${project.build.directory}</targetPath>
         <includes>
           <include>log4j.properties</include>
+          <include>opennlp/en-sent.bin</include>
         </includes>
       </resource>
     </resources>
@@ -449,12 +462,13 @@
         <artifactId>maven-source-plugin</artifactId>
         <version>2.2.1</version>
       </plugin>
-
+<!--
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-jar-plugin</artifactId>
         <version>2.4</version>
       </plugin>
+-->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-shade-plugin</artifactId>

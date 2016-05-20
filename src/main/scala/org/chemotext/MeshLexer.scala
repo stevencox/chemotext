@@ -9,7 +9,7 @@ import scala.util.control.Breaks._
 
 class MeshLexer (meshXML : String) extends Lexer {
 
-  val logger = LoggerFactory.getLogger ("Lexer")
+  val logger = LoggerFactory.getLogger ("MeSHLexer")
   val vocab = VocabFactory.getVocabulary (meshXML)
 
   var words : List[String] = null
