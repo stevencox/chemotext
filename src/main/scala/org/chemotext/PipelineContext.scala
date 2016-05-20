@@ -44,6 +44,9 @@ import scala.util.control.Breaks._
 import opennlp.tools.sentdetect.SentenceModel
 import opennlp.tools.sentdetect.SentenceDetectorME
 
+/**
+  *  Add OpenNLP as a strategy for sentence segmentation.
+  */
 class SentenceSegmenter {
 
   val stream : InputStream = getClass.getResourceAsStream ("/models/en-sent.bin")
@@ -56,8 +59,6 @@ class SentenceSegmenter {
 
 }
 
-
-
 /**
   * Defeat the fact that the version of banner used by tmChem uses System.out for logging.
   * There's no way to configure it, so we'll intercept System.out and turn it off.
@@ -69,6 +70,11 @@ class BannerFilterPrintStream (stream: PrintStream) extends PrintStream (stream)
       super.print (s)
     }
   }
+}
+
+object UniqueID {
+  private var id : Long = 0
+  def inc () = { id += 1; id }
 }
 
 case class Position (
@@ -95,12 +101,14 @@ object Processor {
     C : String
   )
   case class Binary (
-    L        : String,
-    R        : String,
-    docDist  : Double,
-    paraDist : Double,
-    sentDist : Double,
-    code     : Int
+    id        : Long,
+    L         : String,
+    R         : String,
+    docDist   : Double,
+    paraDist  : Double,
+    sentDist  : Double,
+    code      : Int,
+    var fact  : Boolean = false
   )
   case class Paragraph (
     sentences : List[String]
@@ -241,15 +249,16 @@ object Processor {
         val distance = math.abs (left.docPos - right.docPos).toDouble
         if ( distance < threshold && distance > 0 ) {
           logger.debug (s"cooccurring: $left._1 and $right._1 code:$code distance:$distance")
-          new Binary ( left.word,
+          Binary (
+            UniqueID.inc (),
+            left.word,
             right.word,
             distance,
             math.abs (left.paraPos - right.paraPos).toDouble,
             math.abs (left.sentPos - right.sentPos).toDouble,
-            code
-          )
+            code)
         } else {
-          new Binary ( null, null, 0.0, 0.0, 0.0, 0 )
+          new Binary ( UniqueID.inc (), null, null, 0.0, 0.0, 0.0, 0 )
         }
       }
     }.filter { element =>
@@ -432,7 +441,7 @@ object Processor {
 
   def joinBinaries (
     L : RDD[(String, String, Int)],
-    R : RDD[(String, (Double, Double, Double, Int))]) :
+    R : RDD[(String, (Long, Double, Double, Double, Int))]) :
       RDD[Binary] =
   {
     logger.info ("Joining binaries")
@@ -444,7 +453,7 @@ object Processor {
     }
     R.join (left).map { item =>
       val k = splitKey (item._1)
-      Binary ( k(0), k(1), item._2._1._1, item._2._1._2, item._2._1._3, item._2._1._4 )
+      Binary ( item._2._1._1, k(0), k(1), item._2._1._2, item._2._1._3, item._2._1._4, item._2._1._5 )
     }.distinct().cache ()
   }
 
@@ -485,6 +494,7 @@ object Processor {
     if (! vocab.extended) {
 
       logger.info ("Extending basic (MeSH) vocabulary with terms from CTD...")
+
       vocab = new Vocabulary (
 
         A = vocab.A.union (cleanWord (AB.map { e => e._1 })).
@@ -495,7 +505,9 @@ object Processor {
           union (cleanWord (BC.map { e => e._1 })).
           distinct,
 
-        C = vocab.C.union (cleanWord (AC.map { e => e._2 })).
+        C = vocab.C.
+          union (cleanWord (AC.map { e => e._2 })).
+          union (cleanWord (BC.map { e => e._2 })).
           distinct,
 
         extended = true)
@@ -519,7 +531,7 @@ object Processor {
   ) = {
 
     val fb = getFlatBinaries (binaries).map { item =>
-      ( formKey (item.L, item.R), ( item.docDist, item.paraDist, item.sentDist, item.code ))
+      ( formKey (item.L, item.R), ( item.id, item.docDist, item.paraDist, item.sentDist, item.code ))
     }.cache ()
 
     /*
@@ -589,17 +601,17 @@ object Processor {
    * precision and accuracy.
    * 
    */
-  def evaluateBinaries (
+  def annotateBinaries (
     articles : RDD[QuantifiedArticle],
     AB       : RDD[(String, String, Int)],
     BC       : RDD[(String, String, Int)],
-    AC       : RDD[(String, String, Int)]
-  ) = {
+    AC       : RDD[(String, String, Int)]) : RDD[QuantifiedArticle] =
+  {
 
     logger.info ("Evaluate binaries")
 
     val fb = getFlatBinaries (articles).map { item =>
-      ( formKey (item.L, item.R), ( item.docDist, item.paraDist, item.sentDist, item.code ))
+      ( formKey (item.L, item.R), ( item.id, item.docDist, item.paraDist, item.sentDist, item.code ))
     }.cache ()
     
     logger.info (" -- joining binaries")
@@ -613,8 +625,8 @@ object Processor {
     val bcBinaries = joinBinaries (BC, fb)
 
     logger.info (" -- counting predicted")
-    val abPredicted = fb.filter { e => e._2._4 == 1 }
-    val bcPredicted = fb.filter { e => e._2._4 == 2 }
+    val abPredicted = fb.filter { e => e._2._5 == 1 }
+    val bcPredicted = fb.filter { e => e._2._5 == 2 }
     val abPredictedCount = abPredicted.count ()
     val bcPredictedCount = bcPredicted.count ()
 
@@ -630,17 +642,40 @@ object Processor {
       logger.info (s"ab binary predicted: $x")
     }
 
-    bcBinaries.collect().foreach { x =>
+    val bcBinaryFacts = bcBinaries.collect ()
+    bcBinaryFacts.foreach { x =>
       logger.info (s"bc binary in ctd: $x")
     }
-    abBinaries.collect().foreach { x =>
+    val abBinaryFacts = abBinaries.collect ()
+    abBinaryFacts.foreach { x =>
       logger.info (s"ab binary in ctd: $x")
     }
-
     println (s" ab predicted count:       $abPredictedCount")
     println (s" bc predicted count:       $bcPredictedCount")
     println (s" ab predicted and in ctd:  ${abBinaries.count ()}")
     println (s" bc predicted and in ctd:  ${bcBinaries.count ()}")
+
+    // Annotate binaries regarding their CTD status.
+    articles.map { article =>
+      article.copy (AB = tagFacts (article.AB, abBinaryFacts))
+    }.map { article =>
+      article.copy (BC = tagFacts (article.BC, bcBinaryFacts))
+    }
+
+  }
+
+  def tagFacts (assertions : List[Binary], facts : Array[Binary]) : List[Binary] = {
+    //val buf = new ListBuffer[Binary] ()
+    assertions.foreach { assertion =>
+      facts.foreach { fact =>
+        if (assertion.id == fact.id) {
+          assertion.fact = true
+        }
+        //buf += assertion
+      }
+    }
+    //buf.toList
+    assertions
   }
 
   /*
@@ -683,12 +718,8 @@ object Processor {
     }
 
     val articles = generatePairs (articlePaths, meshXML, sampleSize, lexerConf)
-
-    evaluateBinaries (articles, AB, BC, AC)
-
-    calculateTriples (articles, outputPath)
-
-    //genHypothesesWithLRM (binaries, AB, BC)
+    val annotatedArticles = annotateBinaries (articles, AB, BC, AC)
+    calculateTriples (annotatedArticles, outputPath)
   }
 
 }
