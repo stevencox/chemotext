@@ -77,11 +77,24 @@ object UniqueID {
   def inc () = { id += 1; id }
 }
 
+/**
+  *  Track a place in a document
+  */
 case class Position (
   var document  : Int = 0,
   var text      : Int = 0,
   var paragraph : Int = 0,
   var sentence  : Int = 0
+)
+
+/**
+  * Represenation of known propositions from authoratative databases.
+  */
+case class Fact (
+  L     : String,
+  R     : String,
+  code  : Int,
+  PMIDs : Array[String]
 )
 
 /***
@@ -108,7 +121,8 @@ object Processor {
     paraDist  : Double,
     sentDist  : Double,
     code      : Int,
-    var fact  : Boolean = false
+    var fact  : Boolean = false,
+    var refs  : Array[String] = Array[String]()
   )
   case class Paragraph (
     sentences : List[String]
@@ -186,20 +200,7 @@ object Processor {
     }.filter { item =>
       item.A != null
     }
-    val quantified = QuantifiedArticle (
-      fileName   = article.fileName,
-      date       = article.date,
-      id         = article.id,
-      generator  = article.generator,
-      raw        = article.raw,
-      paragraphs = article.paragraphs,
-      A          = article.A,
-      B          = article.B,
-      C          = article.C,
-      AB         = article.AB,
-      BC         = article.BC,
-      AC         = article.AC,
-      ABC        = ABC)
+    val quantified = article.copy (ABC = ABC)
 
     val outputDir = new File (outputPath)
     if (! outputDir.isDirectory ()) {
@@ -219,19 +220,10 @@ object Processor {
 
   def findPairs (article : QuantifiedArticle) : QuantifiedArticle = {
     val threshold = 100
-    QuantifiedArticle (
-      fileName   = article.fileName,
-      date       = article.date,
-      id         = article.id,
-      generator  = article.generator,
-      raw        = article.raw,
-      paragraphs = article.paragraphs,
-      A          = article.A,
-      B          = article.B,
-      C          = article.C,
-      AB         = findCooccurring (article.A, article.B, threshold, 1), // AB,
-      BC         = findCooccurring (article.B, article.C, threshold, 2), // BC,
-      AC         = findCooccurring (article.A, article.C, threshold, 3)) // AC
+    article.copy (
+      AB = findCooccurring (article.A, article.B, threshold, 1),
+      BC = findCooccurring (article.B, article.C, threshold, 2),
+      AC = findCooccurring (article.A, article.C, threshold, 3))
   }
 
   /**
@@ -250,15 +242,15 @@ object Processor {
         if ( distance < threshold && distance > 0 ) {
           logger.debug (s"cooccurring: $left._1 and $right._1 code:$code distance:$distance")
           Binary (
-            UniqueID.inc (),
-            left.word,
-            right.word,
-            distance,
-            math.abs (left.paraPos - right.paraPos).toDouble,
-            math.abs (left.sentPos - right.sentPos).toDouble,
-            code)
+            id       = UniqueID.inc (),
+            L        = left.word,
+            R        = right.word,
+            docDist  = distance,
+            paraDist = math.abs (left.paraPos - right.paraPos).toDouble,
+            sentDist = math.abs (left.sentPos - right.sentPos).toDouble,
+            code     = code)
         } else {
-          new Binary ( UniqueID.inc (), null, null, 0.0, 0.0, 0.0, 0 )
+          Binary ( UniqueID.inc (), null, null, 0.0, 0.0, 0.0, 0 )
         }
       }
     }.filter { element =>
@@ -367,9 +359,6 @@ object Processor {
     result.toList
   }
 
-  val ordinary=(('a' to 'z') ++ ('A' to 'Z') ++ ('0' to '9')).toSet
-  def isOrdinary(s:String) = s.forall (ordinary.contains (_))
-
   /**
     * Prep vocabulary terms by lower casing, removing non alpha strings and other dross.
     */
@@ -384,43 +373,17 @@ object Processor {
     }.distinct().collect ().toList
   }
 
-  /**
-    * ChemicalName,ChemicalID,CasRN,DiseaseName,DiseaseID,DirectEvidence,InferenceGeneSymbol,InferenceScore,OmimIDs,PubMedIDs
-    * http://ctdbase.org/
-    * parse CTD
-    * find matching triples
-    * create perceptron training set
-    */
-  def getKnownTriples (triples : Array[(String, String, String, Int)], ctd : RDD[Array[String]])
-      : RDD[( String, String, String, Int )] =
-  {
-    ctd.map { tuple =>
-      ( tuple(0).toLowerCase ().replaceAll ("\"", ""),
-        tuple(3).toLowerCase ().replaceAll ("\"", "") )
-    }.flatMap { tuple =>
-      triples.filter {  w => 
-        tuple._1.equals (w._1) && tuple._2.equals (w._3)
-      }
-    }.distinct().cache ()
-  }
-
-  def getTSVRecords (rdd : RDD[String]) : RDD[Array[String]] = {
-    rdd.filter { line =>
-      ! line.startsWith ("#")
-    }.map { line =>
-      line.split(",").map { elem =>
-        elem.trim.replaceAll ("\"", "")
-      }
-    }
-  }
-
   def getCSV (sc : SparkContext, fileName : String, sampleSize : Double = 0.1) : RDD[Array[String]] = {
     val sqlContext = new SQLContext(sc)
     sqlContext.read
       .format("com.databricks.spark.csv")
       .load(fileName).rdd.sample (false, sampleSize, 1234)
       .map { row =>
-        Array( row.getString(0), row.getString(1), row.getString(2), row.getString(3) )
+      var buf = new ArrayBuffer[String] ()
+      for (c <- 0 to row.length - 1) {
+        buf += row.getString (c)
+      }
+      buf.toArray
     }
   }
 
@@ -428,6 +391,19 @@ object Processor {
       : RDD[(String,String,Int)] = 
   {
     getCSV (sc, fileName, sampleSize).map { row => ( row(a), row(b), code ) }
+  }
+
+  def getFacts (sc : SparkContext, fileName : String, sampleSize : Double = 0.1, a : Int, b : Int, code : Int, pmids : Int = 0)
+      : RDD[Fact] =
+  {
+    getCSV (sc, fileName, sampleSize).map { row =>
+      Fact (
+        L     = row (a),
+        R     = row (b),
+        code  = code,
+        PMIDs = row (pmids).split ("\\|")
+      )
+    }
   }
 
   def formKey (a : String, b : String) : String = {
@@ -440,20 +416,25 @@ object Processor {
   }
 
   def joinBinaries (
-    L : RDD[(String, String, Int)],
+    L : RDD[Fact],
     R : RDD[(String, (Long, Double, Double, Double, Int))]) :
       RDD[Binary] =
   {
     logger.info ("Joining binaries")
-    val left = L.map { item =>
-      ( formKey (item._1, item._2), (0) )
-    }
-    left.foreach { l =>
-      //println (s"  ------88> $l")
+    val left = L.map { fact =>
+      ( formKey (fact.L, fact.R), fact.PMIDs )
     }
     R.join (left).map { item =>
       val k = splitKey (item._1)
-      Binary ( item._2._1._1, k(0), k(1), item._2._1._2, item._2._1._3, item._2._1._4, item._2._1._5 )
+      Binary (
+        id       = item._2._1._1,
+        L        = k(0),
+        R        = k(1),
+        docDist  = item._2._1._2,
+        paraDist = item._2._1._3,
+        sentDist = item._2._1._4,
+        code     = item._2._1._5,
+        refs     = item._2._2)
     }.distinct().cache ()
   }
 
@@ -484,9 +465,9 @@ object Processor {
   }
 
   def extendVocabulary (
-    AB      : RDD[(String, String, Int)],
-    BC      : RDD[(String, String, Int)],
-    AC      : RDD[(String, String, Int)],
+    AB      : RDD[Fact],
+    BC      : RDD[Fact],
+    AC      : RDD[Fact],
     meshXML : String
   ) = {
     logger.info ("Checking vocabulary...")
@@ -497,17 +478,17 @@ object Processor {
 
       vocab = new Vocabulary (
 
-        A = vocab.A.union (cleanWord (AB.map { e => e._1 })).
+        A = vocab.A.union (cleanWord (AB.map { e => e.L })).
           distinct.filter (!_.equals ("apoptosis")),
 
         B = vocab.B.
-          union (cleanWord (AB.map { e => e._2 })).
-          union (cleanWord (BC.map { e => e._1 })).
+          union (cleanWord (AB.map { e => e.R })).
+          union (cleanWord (BC.map { e => e.L })).
           distinct,
 
         C = vocab.C.
-          union (cleanWord (AC.map { e => e._2 })).
-          union (cleanWord (BC.map { e => e._2 })).
+          union (cleanWord (AC.map { e => e.R })).
+          union (cleanWord (BC.map { e => e.R })).
           distinct,
 
         extended = true)
@@ -526,8 +507,8 @@ object Processor {
 
   def genHypothesesWithLRM (
     binaries : RDD[QuantifiedArticle],
-    AB       : RDD[(String, String, Int)],
-    BC       : RDD[(String, String, Int)]
+    AB       : RDD[Fact],
+    BC       : RDD[Fact]
   ) = {
 
     val fb = getFlatBinaries (binaries).map { item =>
@@ -573,11 +554,35 @@ object Processor {
 
   }
 
-  def calculateTriples (articles : RDD[QuantifiedArticle], outputPath : String) = {
+  case class PMIDToDate (
+    map : Map[String, String]
+  )
+
+  def calculateTriples (articlesIn : RDD[QuantifiedArticle], outputPath : String) = {
     logger.info ("== Calculate triples.")
-    val triples = articles.map { article =>
+    val articles = articlesIn.map { article =>
       Processor.findTriples (article, outputPath)
-    }.flatMap { article =>
+    }
+
+    val map = new HashMap[String, String] ()
+    articles.map { article =>
+      (article.id, article.date)
+    }.collect.foreach { i =>
+      map.put (i._1, i._2)
+    }
+
+    val pmidToDate = PMIDToDate (scala.collection.immutable.HashMap () ++ map)
+
+    JSONUtils.writeJSON (pmidToDate, outputPath + File.separator + "pmid_date.json")
+
+    /** test we can read the json we just wrote.
+    val json = JSONUtils.readJSON (outputPath + File.separator + "pmid_date.json")
+    implicit val formats = DefaultFormats
+    val pmidToDate2 = json.extract[PMIDToDate]
+    println (s" ${pmidToDate2.map}")
+      */
+
+    val triples = articles.flatMap { article =>
       article.ABC
     }.map { triple =>
       ( triple, 1 )
@@ -603,32 +608,24 @@ object Processor {
    */
   def annotateBinaries (
     articles : RDD[QuantifiedArticle],
-    AB       : RDD[(String, String, Int)],
-    BC       : RDD[(String, String, Int)],
-    AC       : RDD[(String, String, Int)]) : RDD[QuantifiedArticle] =
+    AB       : RDD[Fact],
+    BC       : RDD[Fact],
+    AC       : RDD[Fact]) : RDD[QuantifiedArticle] =
   {
-
     logger.info ("Evaluate binaries")
-
     val fb = getFlatBinaries (articles).map { item =>
       ( formKey (item.L, item.R), ( item.id, item.docDist, item.paraDist, item.sentDist, item.code ))
     }.cache ()
-    
+
     logger.info (" -- joining binaries")
     logger.info ("Joining AB binaries to generated binary predictions")
     val abBinaries = joinBinaries (AB, fb)
-    AB.foreach { b =>
-      //logger.debug (s" ------> $b")
-    }
-
     logger.debug ("Joining BC binaries to generated binary predictions")
     val bcBinaries = joinBinaries (BC, fb)
 
     logger.info (" -- counting predicted")
     val abPredicted = fb.filter { e => e._2._5 == 1 }
     val bcPredicted = fb.filter { e => e._2._5 == 2 }
-    val abPredictedCount = abPredicted.count ()
-    val bcPredictedCount = bcPredicted.count ()
 
     logger.info (" -- counting ab binaries")
     val abPredictedInCTDCount = abBinaries.count ()
@@ -650,10 +647,10 @@ object Processor {
     abBinaryFacts.foreach { x =>
       logger.info (s"ab binary in ctd: $x")
     }
-    println (s" ab predicted count:       $abPredictedCount")
-    println (s" bc predicted count:       $bcPredictedCount")
-    println (s" ab predicted and in ctd:  ${abBinaries.count ()}")
-    println (s" bc predicted and in ctd:  ${bcBinaries.count ()}")
+    println (s" ab predicted count:       ${abPredicted.count}")
+    println (s" bc predicted count:       ${bcPredicted.count}")
+    println (s" ab predicted and in ctd:  ${abBinaries.count}")
+    println (s" bc predicted and in ctd:  ${bcBinaries.count}")
 
     // Annotate binaries regarding their CTD status.
     articles.map { article =>
@@ -665,16 +662,14 @@ object Processor {
   }
 
   def tagFacts (assertions : List[Binary], facts : Array[Binary]) : List[Binary] = {
-    //val buf = new ListBuffer[Binary] ()
     assertions.foreach { assertion =>
       facts.foreach { fact =>
         if (assertion.id == fact.id) {
           assertion.fact = true
+          assertion.refs = fact.refs
         }
-        //buf += assertion
       }
     }
-    //buf.toList
     assertions
   }
 
@@ -704,19 +699,17 @@ object Processor {
     articlePaths : RDD[String],
     meshXML      : String,
     lexerConf    : TmChemLexerConf,
-    AB           : RDD[(String, String, Int)],
-    BC           : RDD[(String, String, Int)],
-    AC           : RDD[(String, String, Int)],
+    AB           : RDD[Fact],
+    BC           : RDD[Fact],
+    AC           : RDD[Fact],
     sampleSize   : Double,
     outputPath   : String) =
   {
     val vocab = extendVocabulary (AB, BC, AC, meshXML)
-
     logger.debug (s"article path count: ${articlePaths.count}")
     articlePaths.collect.foreach { a =>
       logger.debug (s"--> $a")
     }
-
     val articles = generatePairs (articlePaths, meshXML, sampleSize, lexerConf)
     val annotatedArticles = annotateBinaries (articles, AB, BC, AC)
     calculateTriples (annotatedArticles, outputPath)
@@ -772,9 +765,9 @@ class PipelineContext (
     val vectorModelPath = "pmc_w2v.model"
 
     val ctdSampleSize = 1.0
-    val AB = Processor.getCSVFields (sparkContext, ctdABPath, ctdSampleSize, 0, 3, 1)
-    val BC = Processor.getCSVFields (sparkContext, ctdBCPath, ctdSampleSize, 0, 2, 2)
-    val AC = Processor.getCSVFields (sparkContext, ctdACPath, ctdSampleSize, 0, 3, 3)
+    val AB = Processor.getFacts (sparkContext, ctdABPath, ctdSampleSize, a = 0, b = 3, code = 1, pmids = 10)
+    val BC = Processor.getFacts (sparkContext, ctdBCPath, ctdSampleSize, a = 0, b = 2, code = 2, pmids = 8)
+    val AC = Processor.getFacts (sparkContext, ctdACPath, ctdSampleSize, a = 0, b = 3, code = 3, pmids = 9)
 
     Processor.executeChemotextPipeline (
       articlePaths   = sparkContext.parallelize (articleList),
