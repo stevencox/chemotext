@@ -1,0 +1,96 @@
+#!/bin/bash
+
+set +x
+
+if [ -z "$STARS_HOME" ]; then
+    echo STARS_HOME must be set
+    exit 1
+fi
+
+echo STARS_HOME: $STARS_HOME
+
+FRAMEWORK_NAME="Chemotext2:Evaluate[Python]"
+
+dev () {
+    APP_HOME=$STARS_HOME/chemotext
+    SPARK_HOME=$STARS_HOME/spark/current
+    DATA_HOME=$STARS_HOME/data
+    SAMPLESIZE=0.001
+    VENV=$STARS_HOME/venv
+    env=dev
+
+    MESOS_MASTER=local[2]
+
+    ARG_MESOS_MASTER="--master $MESOS_MASTER"
+    ARG_EXECUTOR_MEMORY=10G
+    ARG_TOTAL_EXECUTOR_CORES=2
+    ARG_NUM_EXECUTORS=2
+    ARG_DRIVER_MEMORY=15G
+    ARG_TASK_CPUS=1
+    ARG_DEFAULT_PARALLELISM=2
+    ARG_MAX_RESULT_SIZE=1G
+}
+test () {
+    dev
+    DATA_HOME=$STARS_HOME/chemotext/data
+    TMCHEM_HOME=$APP_HOME/data/tmchem
+    SAMPLESIZE=1
+    env=test
+}
+prod () {
+    APP_HOME=$STARS_HOME/app/chemotext
+    SPARK_HOME=$STARS_HOME/stack/spark/current
+    DATA_HOME=$STARS_HOME/var/chemotext
+    SAMPLESIZE=1 #0.001
+    VENV=$STARS_HOME/venv
+    env=prod
+
+    ARG_MESOS_MASTER=
+    ARG_EXECUTOR_MEMORY=70G
+    ARG_TOTAL_EXECUTOR_CORES=200
+    ARG_NUM_EXECUTORS=20
+    ARG_DRIVER_MEMORY=3G
+    ARG_TASK_CPUS=10
+    ARG_DEFAULT_PARALLELISM=200
+    ARG_MAX_RESULT_SIZE=4G
+
+    export MESOS_MASTER=stars-c1.edc.renci.org:5050
+    export MESOS_MASTER=$(hostname):5050
+    echo mesos master: $MESOS_MASTER
+    echo spark home: $SPARK_HOME
+}
+
+test
+#prod 
+
+set -x
+PUBMEDC=$DATA_HOME/pubmed/articles
+CTDACPATH=$DATA_HOME/ctd/CTD_chemicals_diseases.csv
+CTDABPATH=$DATA_HOME/ctd/CTD_chem_gene_ixns.csv
+CTDBCPATH=$DATA_HOME/ctd/CTD_genes_diseases.csv
+LEXER_CONFIGPATH=$TMCHEM_HOME/config/banner_JOINT_${env}.xml
+LEXER_CACHEFILE=$TMCHEM_HOME/cacheFile.tsv
+LEXER_DICTIONARY=$TMCHEM_HOME/data/dict.txt
+INPUTPATH=$DATA_HOME/output.mesh.2
+#INPUTPATH=$DATA_HOME/output.tmchem
+set +x
+
+cd $APP_HOME
+export JAVA_OPTS="-Xmx10G -Xms10G"
+
+$SPARK_HOME/bin/spark-submit \
+    $ARG_MESOS_MASTER \
+    --executor-memory $ARG_EXECUTOR_MEMORY \
+    --total-executor-cores $ARG_TOTAL_EXECUTOR_CORES \
+    --num-executors $ARG_NUM_EXECUTORS  \
+    --driver-memory $ARG_DRIVER_MEMORY \
+    --conf spark.task.cpus=$ARG_TASK_CPUS \
+    --conf spark.default.parallelism=$ARG_DEFAULT_PARALLELISM \
+    --conf spark.driver.maxResultSize=$ARG_MAX_RESULT_SIZE \
+    \
+    --py-files python/Quant.py \
+    $APP_HOME/python/evaluate.py \
+    --host  $MESOS_MASTER \
+    --input $INPUTPATH \
+    --name  $FRAMEWORK_NAME \
+    --venv  $VENV
