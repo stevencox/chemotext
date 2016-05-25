@@ -87,10 +87,14 @@ $SPARK_HOME/bin/spark-submit \
     --conf spark.task.cpus=$ARG_TASK_CPUS \
     --conf spark.default.parallelism=$ARG_DEFAULT_PARALLELISM \
     --conf spark.driver.maxResultSize=$ARG_MAX_RESULT_SIZE \
+    --packages com.databricks:spark-csv_2.10:1.4.0 \
     \
     --py-files python/Quant.py \
     $APP_HOME/python/evaluate.py \
     --host  $MESOS_MASTER \
     --input $INPUTPATH \
     --name  $FRAMEWORK_NAME \
-    --venv  $VENV
+    --venv  $VENV \
+    --ctdAB $CTDABPATH \
+    --ctdBC $CTDBCPATH \
+    --ctdAC $CTDACPATH
