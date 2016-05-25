@@ -9,7 +9,7 @@ import scala.util.control.Breaks._
 
 class MeshLexer (meshXML : String) extends Lexer {
 
-  val logger = LoggerFactory.getLogger ("MeSHLexer")
+  val logger = LoggerFactory.getLogger (getClass.getName) //"MeSHLexer")
   val vocab = VocabFactory.getVocabulary (meshXML)
 
   var words : List[String] = null
@@ -23,6 +23,28 @@ class MeshLexer (meshXML : String) extends Lexer {
     var index = 0
     words.foreach { word =>
       breakable {
+
+        var pos = -1
+	while ({ pos = sentence.indexOf (word, pos + 1); pos } > -1) {
+
+          // Need to better handle:
+          //  1. Exact matches. Make sure p53 does not match p53xyz
+          //  2. Multi word matches wrt #1.
+
+          val textPos = position.text + pos
+          features.add (new WordFeature (
+            word    = word,
+            docPos  = textPos, //position.document + textPos,
+            paraPos = position.paragraph,
+            sentPos = position.sentence ))
+
+          logger.debug (
+            s"** adding word:$word dpos:${position.document} tpos:$textPos " +
+              s" ppos:${position.paragraph} spos:${position.sentence}")
+	}
+
+        /*
+
 
         val token = s" $word "
         var pos = -1
@@ -39,7 +61,7 @@ class MeshLexer (meshXML : String) extends Lexer {
               s" ppos:${position.paragraph} spos:${position.sentence}")
 	}
 
-        /*
+
         tokens.foreach { token =>
           if (token.equals (word)) {
 
