@@ -37,6 +37,8 @@ class TmChemLexer (conf : TmChemLexerConf) extends Lexer {
 
   val logger = LoggerFactory.getLogger("TmChemLexer[Banner]")
 
+  System.setOut (new BannerFilterPrintStream (System.out))
+
   logger.debug (s"Loading lexer config from ${conf.configPath}.")
   val config = new XMLConfiguration (conf.configPath)
   val localConfig = config.configurationAt(classOf[BANNER].getPackage().getName())
