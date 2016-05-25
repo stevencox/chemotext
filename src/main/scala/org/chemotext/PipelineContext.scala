@@ -29,6 +29,9 @@ import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.mllib.util.MLUtils
 import org.apache.spark.sql.SQLContext
 import org.json4s._
+import org.rogach.scallop.Scallop
+import org.rogach.scallop.ScallopConf
+import org.rogach.scallop.ScallopOption
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.xml.sax.SAXParseException
@@ -783,23 +786,44 @@ class PipelineContext (
 
 object PipelineApp {
 
-  val logger = LoggerFactory.getLogger ("PipelineApp")
+  val logger = LoggerFactory.getLogger ("Chemotext2App")
 
   def main(args: Array[String]) {
 
-    val appName = args (0)
-    val appHome = args (1)
-    val articleRootPath = args (2)
-    val meshXML = args (3)
-    val sampleSize = args (4)
-    val ctdACPath = args (5)
-    val ctdABPath = args (6)
-    val ctdBCPath = args (7)
-    val outputPath = args (8)
+    val opts = Scallop (args)
+      .version("v1.0.0 (c) 2016 Chemotext2") // --version option is provided for you
+      .banner("""Usage: chemotext2 [OPTION]...
+                |Chemotext2 searches medical literature for testable toxicology hypotheses.
+                |Options:
+                |""".stripMargin) // --help is provided, will also exit after printing version,
+                                  // banner, options usage, and footer
+      .footer("\n(c) UNC-CH / RENCI")
 
-    val lexerConfigPath    = args (9)
-    val lexerCacheFile     = args (10)
-    val lexerDictPath      = args (11)
+      .opt[String]("name",     descr = "Name of the application.")
+      .opt[String]("home",     descr = "Application home directory")
+      .opt[String]("articles", descr = "Root directory of articles to analyze")
+      .opt[String]("mesh",     descr = "Path to MeSH XML definition file")
+      .opt[Double]("sample",   descr = "Sample size to apply to total article collection")
+      .opt[String]("ctdAC",    descr = "Path to CTD AC data file")
+      .opt[String]("ctdAB",    descr = "Path to CTD AB data file")
+      .opt[String]("ctdBC",    descr = "Path to CTD BC data file")
+      .opt[String]("output",   descr = "Output directory for process output")
+      .opt[String]("lexerConfig", descr = "Lexical analyzer configuration path (tmChem)")
+      .opt[String]("lexerCache",  descr = "Lexical analyzer cache file path (tmChem)")
+      .opt[String]("lexerDict",   descr = "Lexical analyzer dictionary path (tmChem)")
+
+    val appName = opts[String]("name")
+    val appHome = opts[String]("home")
+    val articleRootPath = opts[String]("articles")
+    val meshXML = opts[String]("mesh")
+    val sampleSize = opts[Double]("sample")
+    val ctdACPath = opts[String]("ctdAC")
+    val ctdABPath = opts[String]("ctdAB")
+    val ctdBCPath = opts[String]("ctdBC")
+    val outputPath = opts[String]("output")
+    val lexerConfigPath = opts[String]("lexerConfig")
+    val lexerCacheFile = opts[String]("lexerCache")
+    val lexerDictPath = opts[String]("lexerDict")
 
     logger.info (s"appName        : $appName")
     logger.info (s"appHome        : $appHome")
@@ -832,10 +856,6 @@ object PipelineApp {
       ctdBCPath,
       sampleSize.toDouble,
       outputPath)
-
-
-    System.setOut (new BannerFilterPrintStream (System.out))
-
 
     pipeline.execute ()    
   }

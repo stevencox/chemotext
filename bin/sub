@@ -72,17 +72,17 @@ PUBMEDC=$DATA_HOME/pubmed/articles
 CTDACPATH=$DATA_HOME/ctd/CTD_chemicals_diseases.csv
 CTDABPATH=$DATA_HOME/ctd/CTD_chem_gene_ixns.csv
 CTDBCPATH=$DATA_HOME/ctd/CTD_genes_diseases.csv
-NORMALIZER_CONFIGPATH=$TMCHEM_HOME/config/banner_JOINT_${env}.xml
-NORMALIZER_CACHEFILE=$TMCHEM_HOME/cacheFile.tsv
-NORMALIZER_DICTIONARY=$TMCHEM_HOME/data/dict.txt
+LEXER_CONFIGPATH=$TMCHEM_HOME/config/banner_JOINT_${env}.xml
+LEXER_CACHEFILE=$TMCHEM_HOME/cacheFile.tsv
+LEXER_DICTIONARY=$TMCHEM_HOME/data/dict.txt
 OUTPUTPATH=$DATA_HOME/output.mesh.2
 #OUTPUTPATH=$DATA_HOME/output.tmchem
 set +x
 
 genTmChemConfig () {
-    rm -rf $NORMALIZER_CONFIGPATH
-    echo writing $NORMALIZER_CONFIGPATH
-    cat <<EOF >> $NORMALIZER_CONFIGPATH
+    rm -rf $LEXER_CONFIGPATH
+    echo writing $LEXER_CONFIGPATH
+    cat <<EOF >> $LEXER_CONFIGPATH
 <?xml version="1.0" encoding="iso-8859-1"?>
 <banner-configuration>
   <banner>
@@ -134,15 +134,16 @@ $SPARK_HOME/bin/spark-submit \
     --conf spark.default.parallelism=$ARG_DEFAULT_PARALLELISM \
     --conf spark.driver.maxResultSize=$ARG_MAX_RESULT_SIZE \
     $( find $APP_HOME -name "*assembly*.jar" -print | grep scala ) \
-    $FRAMEWORK_NAME \
-    $APP_HOME \
-    $PUBMEDC \
-    $MESHXML \
-    $SAMPLESIZE \
-    $CTDACPATH \
-    $CTDABPATH \
-    $CTDBCPATH \
-    $OUTPUTPATH \
-    $NORMALIZER_CONFIGPATH \
-    $NORMALIZER_CACHEFILE \
-    $NORMALIZER_DICTIONARY
+    \
+    --name $FRAMEWORK_NAME \
+    --home $APP_HOME \
+    --articles $PUBMEDC \
+    --mesh $MESHXML \
+    --sample $SAMPLESIZE \
+    --ctdAC $CTDACPATH \
+    --ctdAB $CTDABPATH \
+    --ctdBC $CTDBCPATH \
+    --output $OUTPUTPATH \
+    --lexerConfig $LEXER_CONFIGPATH \
+    --lexerCache $LEXER_CACHEFILE \
+    --lexerDict $LEXER_DICTIONARY
