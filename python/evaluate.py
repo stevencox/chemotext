@@ -8,7 +8,10 @@ import logging
 import sys
 import socket
 import time
-from Quant import Quant
+import traceback
+from chemotext_util import Quant
+from chemotext_util import Article
+from chemotext_util import read_article
 
 def init_logging ():
     FORMAT = '%(asctime)-15s %(filename)s %(funcName)s %(levelname)s: %(message)s'
@@ -41,37 +44,37 @@ def get_article (article):
 def parse_date (date):
     return datetime.datetime.strptime (date, "%d-%m-%Y")
 
-
 def process_article (article_path, input_dir):
     MIN_DATE = parse_date ('1-1-1000')
     MAX_DATE = parse_date ('1-1-9000')
     logger = init_logging ()
     logger.info ("Article: @-- {0}".format (article_path))
-    article = get_article (article_path)
+    traceback.print_stack ()
+    article = read_article (article_path)
     before = 0
     not_before = 0
     false_positive = 0
     pmids = get_pmid_map (os.path.join (input_dir, "pmid_date.json"))
-    binaries = article["AB"] + article["BC"] + article["AC"]
+    binaries = article.AB + article.BC + article.AC
     for binary in binaries:
-        logger.info ("Binary: {0}".format (binary))        
-        doc_date = parse_date (article['date'])
-        if binary ['fact']:
-            refs = binary['refs']
-            logger.debug ("fact: {0}".format (binary))
-            ref_dates = [ parse_date (pmids[ref]) if ref in pmids else None for ref in refs ]
-            ref_dates = [ d for d in ref_dates if d ]
-            min_ref_date = min (ref_dates) if len(ref_dates) > 0 else MIN_DATE
-            max_ref_date = max (ref_dates) if len(ref_dates) > 0 else MAX_DATE
-            if doc_date < min_ref_date:
-                logger.info ("  -- is_before")
-                before = before + 1
-            else:
-                logger.info ("  -- is_not_before")
-                not_before = not_before + 1
+        doc_date = parse_date (article.date)
+        if binary.fact:
+            refs = binary.refs
+            if refs:
+                logger.debug ("fact: {0}".format (binary))
+                ref_dates = [ parse_date (pmids[ref]) if ref in pmids else None for ref in refs ]
+                ref_dates = [ d for d in ref_dates if d ]
+                min_ref_date = min (ref_dates) if len(ref_dates) > 0 else MIN_DATE
+                max_ref_date = max (ref_dates) if len(ref_dates) > 0 else MAX_DATE
+                if doc_date < min_ref_date:
+                    logger.info ("  -- is_before")
+                    before = before + 1
+                else:
+                    logger.info ("  -- is_not_before")
+                    not_before = not_before + 1
         else:
             false_positive = false_positive + 1
-    return Quant(before, not_before, false_positive)
+    return Quant (before, not_before, false_positive)
 
 def count_false_negatives (sc, conf, articles):
     from pyspark.sql import SQLContext
@@ -103,10 +106,6 @@ def evaluate (conf):
 
     articles = glob.glob (os.path.join (conf.input_dir, "*fxml.json"))
     articles = sc.parallelize (articles [0:200])
-
-    for a in articles.collect ():
-        process_article (a, conf.input_dir)
-
     quanta = articles.map (lambda article : process_article (article, conf.input_dir))
 
     before = quanta.map (lambda q : q.before).sum()

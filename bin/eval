@@ -89,7 +89,7 @@ $SPARK_HOME/bin/spark-submit \
     --conf spark.driver.maxResultSize=$ARG_MAX_RESULT_SIZE \
     --packages com.databricks:spark-csv_2.10:1.4.0 \
     \
-    --py-files python/Quant.py \
+    --py-files python/chemotext_util.py \
     $APP_HOME/python/evaluate.py \
     --host  $MESOS_MASTER \
     --input $INPUTPATH \
