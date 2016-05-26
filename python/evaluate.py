@@ -29,22 +29,6 @@ def get_spark_context (conf):
                  .setMaster(conf.host)
                  .setAppName(conf.framework_name))
     return SparkContext(conf = sparkConf)
-'''    
-def read_json_file (file_name):
-    result = None
-    with open (file_name) as stream:
-        result = json.loads (stream.read ())
-    return result
-
-def get_pmid_map (pmids):
-    return read_json_file (pmids)
-
-def get_article (article):
-    return read_json_file (article)
-
-def parse_date (date):
-    return datetime.datetime.strptime (date, "%d-%m-%Y")
-'''
 
 def process_article (article_path, input_dir):
     MIN_DATE = SUtil.parse_date ('1-1-1000')
