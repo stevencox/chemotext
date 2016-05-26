@@ -81,13 +81,10 @@ def process_article (article_path, input_dir):
 def count_false_negatives (sc, conf, articles):
     from pyspark.sql import SQLContext
     sqlContext = SQLContext(sc)
-    
     ref_AB = sqlContext.read.format('com.databricks.spark.csv').options(comment='#').load(conf.ctdAB).rdd
     ref_AB = ref_AB.map (lambda a : (a.C0, a.C3) )
-
     gen_AB = articles.flatMap (lambda a : SUtil.read_article (a).AB )
     gen_AB = gen_AB.filter (lambda a : a.fact ).map (lambda a : (a.L, a.R))
-
     return ref_AB.subtract (gen_AB).count ()
 
 '''
