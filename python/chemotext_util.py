@@ -1,5 +1,5 @@
+import datetime
 import json
-
 
 class Quant(object):
     def __init__(self, before, not_before, false_positives):
@@ -119,3 +119,24 @@ def read_article (article_path):
     with open (article_path) as stream:
         result = json.loads (stream.read (), cls=ArticleDecoder)
     return result
+
+
+class SerializationUtil(object):
+    @staticmethod
+    def read_json_file (file_name):
+        result = None
+        with open (file_name) as stream:
+            result = json.loads (stream.read ())
+        return result
+    @staticmethod
+    def get_pmid_map (pmids):
+        return SerializationUtil.read_json_file (pmids)
+    @staticmethod
+    def read_article (article_path):
+        result = None
+        with open (article_path) as stream:
+            result = json.loads (stream.read (), cls=ArticleDecoder)
+        return result
+    @staticmethod
+    def parse_date (date):
+        return datetime.datetime.strptime (date, "%d-%m-%Y")

@@ -11,12 +11,13 @@ import time
 import traceback
 from chemotext_util import Quant
 from chemotext_util import Article
-from chemotext_util import read_article
+from chemotext_util import SerializationUtil as SUtil
 
 def init_logging ():
     FORMAT = '%(asctime)-15s %(filename)s %(funcName)s %(levelname)s: %(message)s'
     logging.basicConfig(format=FORMAT, level=logging.INFO)
     return logging.getLogger(__file__)
+
 logger = init_logging ()
 
 def get_spark_context (conf):
@@ -28,7 +29,7 @@ def get_spark_context (conf):
                  .setMaster(conf.host)
                  .setAppName(conf.framework_name))
     return SparkContext(conf = sparkConf)
-    
+'''    
 def read_json_file (file_name):
     result = None
     with open (file_name) as stream:
@@ -43,26 +44,27 @@ def get_article (article):
 
 def parse_date (date):
     return datetime.datetime.strptime (date, "%d-%m-%Y")
+'''
 
 def process_article (article_path, input_dir):
-    MIN_DATE = parse_date ('1-1-1000')
-    MAX_DATE = parse_date ('1-1-9000')
+    MIN_DATE = SUtil.parse_date ('1-1-1000')
+    MAX_DATE = SUtil.parse_date ('1-1-9000')
     logger = init_logging ()
     logger.info ("Article: @-- {0}".format (article_path))
     traceback.print_stack ()
-    article = read_article (article_path)
+    article = SUtil.read_article (article_path)
     before = 0
     not_before = 0
     false_positive = 0
-    pmids = get_pmid_map (os.path.join (input_dir, "pmid_date.json"))
+    pmids = SUtil.get_pmid_map (os.path.join (input_dir, "pmid_date.json"))
     binaries = article.AB + article.BC + article.AC
     for binary in binaries:
-        doc_date = parse_date (article.date)
+        doc_date = SUtil.parse_date (article.date)
         if binary.fact:
             refs = binary.refs
             if refs:
                 logger.debug ("fact: {0}".format (binary))
-                ref_dates = [ parse_date (pmids[ref]) if ref in pmids else None for ref in refs ]
+                ref_dates = [ SUtil.parse_date (pmids[ref]) if ref in pmids else None for ref in refs ]
                 ref_dates = [ d for d in ref_dates if d ]
                 min_ref_date = min (ref_dates) if len(ref_dates) > 0 else MIN_DATE
                 max_ref_date = max (ref_dates) if len(ref_dates) > 0 else MAX_DATE
@@ -83,8 +85,8 @@ def count_false_negatives (sc, conf, articles):
     ref_AB = sqlContext.read.format('com.databricks.spark.csv').options(comment='#').load(conf.ctdAB).rdd
     ref_AB = ref_AB.map (lambda a : (a.C0, a.C3) )
 
-    gen_AB = articles.flatMap (lambda a : get_article (a)["AB"] )
-    gen_AB = gen_AB.filter (lambda a : a["fact"] ).map (lambda a : (a["L"], a["R"]))
+    gen_AB = articles.flatMap (lambda a : SUtil.read_article (a).AB )
+    gen_AB = gen_AB.filter (lambda a : a.fact ).map (lambda a : (a.L, a.R))
 
     return ref_AB.subtract (gen_AB).count ()
 
@@ -146,14 +148,14 @@ def main ():
     parser.add_argument("--ctdAC", help="Path to CTD AC data")
     args = parser.parse_args()
     
-    conf = Conf (host = args.host,
-                 venv = args.venv,
+    conf = Conf (host           = args.host,
+                 venv           = args.venv,
                  framework_name = args.name,
-                 input_dir = args.input,
-                 ctdAB     = args.ctdAB,
-                 ctdBC     = args.ctdBC,
-                 ctdAC     = args.ctdAC
-    )
+                 input_dir      = args.input,
+                 ctdAB          = args.ctdAB,
+                 ctdBC          = args.ctdBC,
+                 ctdAC          = args.ctdAC)
+
     evaluate (conf)
 
 main ()
