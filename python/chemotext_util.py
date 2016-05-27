@@ -1,5 +1,8 @@
 import datetime
 import json
+import logging
+import os
+import socket
 
 class Quant(object):
     def __init__(self, before, not_before, false_positives):
@@ -120,7 +123,6 @@ def read_article (article_path):
         result = json.loads (stream.read (), cls=ArticleDecoder)
     return result
 
-
 class SerializationUtil(object):
     @staticmethod
     def read_json_file (file_name):
@@ -140,3 +142,32 @@ class SerializationUtil(object):
     @staticmethod
     def parse_date (date):
         return datetime.datetime.strptime (date, "%d-%m-%Y")
+
+class EvaluateConf(object):
+    def __init__(self, host, venv, framework_name, input_dir, ctdAB, ctdBC, ctdAC):
+        self.host = host
+        self.venv = venv
+        self.framework_name = framework_name
+        self.input_dir = input_dir
+        self.ctdAB = ctdAB
+        self.ctdBC = ctdBC
+        self.ctdAC = ctdAC
+
+class SparkUtil(object):
+    @staticmethod
+    def get_spark_context (conf):
+        os.environ['PYSPARK_PYTHON'] = "{0}/bin/python".format (conf.venv)
+        from pyspark import SparkConf, SparkContext
+        from StringIO import StringIO
+        ip = socket.gethostbyname(socket.gethostname())
+        sparkConf = (SparkConf()
+                     .setMaster(conf.host)
+                     .setAppName(conf.framework_name))
+        return SparkContext(conf = sparkConf)
+
+class LoggingUtil(object):
+    @staticmethod
+    def init_logging (name):
+        FORMAT = '%(asctime)-15s %(filename)s %(funcName)s %(levelname)s: %(message)s'
+        logging.basicConfig(format=FORMAT, level=logging.INFO)
+        return logging.getLogger(name)
