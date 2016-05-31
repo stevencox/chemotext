@@ -142,6 +142,12 @@ class SerializationUtil(object):
     @staticmethod
     def parse_date (date):
         return datetime.datetime.strptime (date, "%d-%m-%Y")
+    @staticmethod
+    def parse_month_year_date (month, year):
+        result = None
+        if month and year:
+            result = datetime.datetime.strptime ("{0}-{1}-{2}".format (1, month, year), "%d-%b-%Y")
+        return result
 
 class EvaluateConf(object):
     def __init__(self, host, venv, framework_name, input_dir, ctdAB, ctdBC, ctdAC):
@@ -152,6 +158,21 @@ class EvaluateConf(object):
         self.ctdAB = ctdAB
         self.ctdBC = ctdBC
         self.ctdAC = ctdAC
+
+class MedlineConf(object):
+    def __init__(self, host, venv, framework_name, input_xml):
+        self.host = host
+        self.venv = venv
+        self.framework_name = framework_name
+        self.input_xml = input_xml
+
+class MedlineQuant(object):
+    def __init__(self, pmid, date, A, B, C):
+        self.pmid = pmid
+        self.date = date
+        self.A = A
+        self.B = B
+        self.C = C
 
 class SparkUtil(object):
     @staticmethod

@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE MedlineCitationSet PUBLIC "-//NLM//DTD Medline Citation, 1st January, 2016//EN"
+                                    "https://www.nlm.nih.gov/databases/dtd/nlmmedlinecitationset_160101.dtd">
+<MedlineCitationSet>
+
+<MedlineCitation Owner="NLM" Status="MEDLINE">
+   <PMID Version="1">23441564</PMID>
+   <DateCreated>
+      <Year>2013</Year>
+      <Month>02</Month>
+      <Day>27</Day>
+   </DateCreated>
+   <DateCompleted>
+      <Year>2013</Year>
+      <Month>03</Month>
+      <Day>12</Day>
+   </DateCompleted>
+   <DateRevised>
+      <Year>2015</Year>
+      <Month>10</Month>
+      <Day>30</Day>
+   </DateRevised>
+   <Article PubModel="Print">
+      <Journal>
+         <ISSN IssnType="Print">0022-1058</ISSN>
+         <JournalIssue CitedMedium="Print">
+            <Volume>44</Volume>
+            <Issue>4</Issue>
+            <PubDate>
+               <Year>2012</Year>
+               <Month>Dec</Month>
+            </PubDate>
+         </JournalIssue>
+         <Title>The journal of extra-corporeal technology</Title>
+         <ISOAbbreviation>J Extra Corpor Technol</ISOAbbreviation>
+      </Journal>
+      <ArticleTitle>Psychological depression and cardiac surgery: a comprehensive review.</ArticleTitle>
+      <Pagination>
+         <MedlinePgn>224-32</MedlinePgn>
+      </Pagination>
+      <Abstract>
+         <AbstractText>The psychological and neurological impact of cardiac surgery has been of keen empirical interest for more than two decades although reports showing the prognostic influence of depression on 
+adverse outcomes lag behind the evidence documented in heart failure, myocardial infarction, and unstable angina. The paucity of research to date is surprising considering that some pathophysiological mec
+hanisms through which depression is hypothesized to affect coronary heart disease (e.g., platelet activation, the inflammatory system, dysrhythmias) are known to be substantially influenced by the use of 
+cardiopulmonary bypass. As such, cardiac surgery may provide a suitable exemplar to better understand the psychiatric mechanisms of cardiopathogenesis. The extant literature is comprehensively reviewed wi
+th respect to the deleterious impact of depression on cardiac and neuropsychological morbidity and mortality. Research to date indicates that depression and major depressive episodes increase major cardio
+vascular morbidity risk after cardiac surgery. The association between depressive disorders and incident delirium is of particular relevance to cardiac surgery staff. Contemporary treatment intervention s
+tudies are also described along with suggestions for future cardiac surgery research.</AbstractText>
+      </Abstract>
+      <AuthorList CompleteYN="Y">
+         <Author ValidYN="Y">
+            <LastName>Tully</LastName>
+            <ForeName>Phillip J</ForeName>
+            <Initials>PJ</Initials>
+            <AffiliationInfo>
+               <Affiliation>Department of Surgery, Flinders Medical Centre and Flinders University of South Australia, Bedford Park, SA, Australia. phillip.tully@adelaide.edu.au</Affiliation>
+            </AffiliationInfo>
+         </Author>
+      </AuthorList>
+      <Language>eng</Language>
+      <PublicationTypeList>
+         <PublicationType UI="D016428">Journal Article</PublicationType>
+         <PublicationType UI="D016454">Review</PublicationType>
+      </PublicationTypeList>
+   </Article>
+   <MedlineJournalInfo>
+      <Country>United States</Country>
+      <MedlineTA>J Extra Corpor Technol</MedlineTA>
+      <NlmUniqueID>0267637</NlmUniqueID>
+      <ISSNLinking>0022-1058</ISSNLinking>
+   </MedlineJournalInfo>
+
+   <ChemicalList>
+     <Chemical>
+       <RegistryNumber>0</RegistryNumber>
+       <NameOfSubstance UI="D005971">Glutamates</NameOfSubstance>
+     </Chemical>
+     <Chemical>
+       <RegistryNumber>0</RegistryNumber>
+       <NameOfSubstance UI="D059808">Polyphenols</NameOfSubstance>
+     </Chemical>
+     <Chemical>
+       <RegistryNumber>0</RegistryNumber>
+       <NameOfSubstance UI="D013662">Tea</NameOfSubstance>
+     </Chemical>
+     <Chemical>
+       <RegistryNumber>059QF0KO0R</RegistryNumber>
+       <NameOfSubstance UI="D014867">Water</NameOfSubstance>
+     </Chemical>
+     <Chemical>
+       <RegistryNumber>8021PR16QO</RegistryNumber>
+       <NameOfSubstance UI="C026166">theanine</NameOfSubstance>
+     </Chemical>
+     <Chemical>
+       <RegistryNumber>9000-69-5</RegistryNumber>
+       <NameOfSubstance UI="C030121">pectin</NameOfSubstance>
+     </Chemical>
+   </ChemicalList>
+
+   <CitationSubset>T</CitationSubset>
+   <CommentsCorrectionsList>
+      <CommentsCorrections RefType="CommentIn">
+         <RefSource>J Extra Corpor Technol. 2012 Dec;44(4):233-4</RefSource>
+         <PMID Version="1">23441565</PMID>
+      </CommentsCorrections>
+   </CommentsCorrectionsList>
+   <MeshHeadingList>
+
+     <MeshHeading>
+       <DescriptorName MajorTopicYN="Y" UI="D019453">Escherichia coli O157</DescriptorName>
+       <QualifierName MajorTopicYN="Y" UI="Q000187">drug effects</QualifierName>
+     </MeshHeading>
+
+     <MeshHeading>
+       <DescriptorName MajorTopicYN="N" UI="D002118">Calcium</DescriptorName>
+       <QualifierName MajorTopicYN="Y" UI="Q000378">metabolism</QualifierName>
+       <QualifierName MajorTopicYN="Y" UI="Q002378">metabolism x</QualifierName>
+     </MeshHeading>
+     <MeshHeading>
+       <DescriptorName MajorTopicYN="N" UI="D002121">Calcium Channel Blockers</DescriptorName>
+       <QualifierName MajorTopicYN="N" UI="Q000494">pharmacology</QualifierName>
+     </MeshHeading>
+     <MeshHeading>
+       <DescriptorName MajorTopicYN="N" UI="D019610">Cytoprotection</DescriptorName>
+     </MeshHeading>
+
+     <MeshHeading>
+       <DescriptorName MajorTopicYN="Y" UI="D019610">Glutathione</DescriptorName>
+       <QualifierName MajorTopicYN="Y" UI="D120494">pharmacology</QualifierName>
+     </MeshHeading>
+     <MeshHeading>
+       <DescriptorName MajorTopicYN="N" UI="D019610">Lymphocytosis</DescriptorName>
+     </MeshHeading>
+
+      <MeshHeading>
+         <DescriptorName MajorTopicYN="N" UI="D000368">Aged</DescriptorName>
+      </MeshHeading>
+      <MeshHeading>
+         <DescriptorName MajorTopicYN="N" UI="D001026">Coronary Artery Bypass</DescriptorName>
+         <QualifierName MajorTopicYN="Y" UI="Q000523">psychology</QualifierName>
+      </MeshHeading>
+      <MeshHeading>
+         <DescriptorName MajorTopicYN="N" UI="D003324">Coronary Artery Disease</DescriptorName>
+         <QualifierName MajorTopicYN="Y" UI="Q000523">psychology</QualifierName>
+         <QualifierName MajorTopicYN="N" UI="Q000601">surgery</QualifierName>
+      </MeshHeading>
+      <MeshHeading>
+         <DescriptorName MajorTopicYN="N" UI="D003863">Depression</DescriptorName>
+         <QualifierName MajorTopicYN="Y" UI="Q000209">etiology</QualifierName>
+         <QualifierName MajorTopicYN="N" UI="Q000523">psychology</QualifierName>
+      </MeshHeading>
+      <MeshHeading>
+         <DescriptorName MajorTopicYN="N" UI="D005260">Female</DescriptorName>
+      </MeshHeading>
+      <MeshHeading>
+         <DescriptorName MajorTopicYN="N" UI="D006801">Humans</DescriptorName>
+      </MeshHeading>
+      <MeshHeading>
+         <DescriptorName MajorTopicYN="N" UI="D008297">Male</DescriptorName>
+      </MeshHeading>
+      <MeshHeading>
+         <DescriptorName MajorTopicYN="N" UI="D008875">Middle Aged</DescriptorName>
+      </MeshHeading>
+   </MeshHeadingList>
+   <OtherID Source="NLM">PMC4557565</OtherID>
+</MedlineCitation>
+
+</MedlineCitationSet>
