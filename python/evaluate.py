@@ -69,14 +69,14 @@ def count_false_negatives_by_type (sqlContext, ctdRef, articles, L_index, R_inde
     :param R_index: Index of the right term in this CTD file.
     :param tupleType: AB/BC/AC
     '''
-    ref = sqlContext.read. \
+    ref = sqlContext.read.                    \
           format('com.databricks.spark.csv'). \
-          options(comment='#'). \
-          load(ctdRef).rdd. \
+          options(comment='#').               \
+          load(ctdRef).rdd.                   \
           map (lambda a : (a["C{0}".format (L_index)].lower (),
                            a["C{0}".format (R_index)].lower ()) )
 
-    generated = articles. \
+    generated = articles.                                     \
                 flatMap (lambda a : a.__dict__[tuple_type] ). \
                 filter  (lambda a : a.fact ).                 \
                 map     (lambda a : (a.L, a.R))
