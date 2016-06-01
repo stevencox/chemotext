@@ -121,11 +121,10 @@ def analyze_medline (conf):
             filter (lambda r : r). \
             collect()
     for mquant in terms:
-        if mquant:
-            triples = make_triples (mquant)
-            if len(triples) > 0:
-                logger.info ("MeSH Terms: [pmid={0}/date={1}] {2}".format (
-                    mquant.pmid, mquant.date, triples))
+        triples = make_triples (mquant)
+        if len(triples) > 0:
+            logger.info ("MeSH Terms: [pmid={0}/date={1}] {2}".format (
+                mquant.pmid, mquant.date, triples))
 
 def main ():
     parser = argparse.ArgumentParser()
