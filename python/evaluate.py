@@ -10,16 +10,21 @@ import socket
 import time
 import traceback
 from chemotext_util import Article
+from chemotext_util import Quant
 from chemotext_util import EvaluateConf
 from chemotext_util import LoggingUtil
 from chemotext_util import SerializationUtil as SUtil
 from chemotext_util import SparkUtil
-from chemotext_util import Quant
 from pyspark.sql import SQLContext
 
 logger = LoggingUtil.init_logging (__file__)
 
 def count_binaries (article_path, input_dir):
+    ''' This is a function mapped to individual article summaries on distributed Spark workers.
+    For each article, it loads it, and all its binaries.
+    For each binary, it counts binaries discovered before its verifiable discovery reference date.
+    It also counts false positives - non verifiable binary assertions.
+    '''
     MIN_DATE = SUtil.parse_date ('1-1-1000')
     MAX_DATE = SUtil.parse_date ('1-1-9000')
     logger = LoggingUtil.init_logging (__file__)
@@ -50,39 +55,65 @@ def count_binaries (article_path, input_dir):
             false_positive = false_positive + 1
     return Quant (before, not_before, false_positive)
 
-def count_false_negatives_by_type (sqlContext, ctdRef, articles, L_index, R_index, tupleType):
+def count_false_negatives_by_type (sqlContext, ctdRef, articles, L_index, R_index, tuple_type):
+    '''
+    Read a CSV formatted CTD file into a Spark RDD.
+    Filter the RDD, ref, to create a list of reference binaries.
+    Read designated articles into a second RDD and filter to binaries with references.
+    Subtract generated facts from the CTD facts to create the false negative count.
+
+    :param sqlContext: Spark SQL context.
+    :param ctdRef: Comparative Toxicogenomics Database file.
+    :param articles: List of articles to analyze.
+    :param L_index: Index of the left term in this CTD file.
+    :param R_index: Index of the right term in this CTD file.
+    :param tupleType: AB/BC/AC
+    '''
     ref = sqlContext.read. \
           format('com.databricks.spark.csv'). \
           options(comment='#'). \
-          load(ctdRef).rdd \
+          load(ctdRef).rdd. \
           map (lambda a : (a["C{0}".format (L_index)].lower (),
                            a["C{0}".format (R_index)].lower ()) )
+
     generated = articles. \
-                flatMap (lambda a : SUtil.read_article (a).__dict__[tupleType] ). \
-                filter (lambda a : a.fact ). \
-                map (lambda a : (a.L, a.R))
+                flatMap (lambda a : a.__dict__[tuple_type] ). \
+                filter  (lambda a : a.fact ).                 \
+                map     (lambda a : (a.L, a.R))
     return ref.subtract (generated).count ()
 
-def count_false_negatives (sc, conf, articles):
+def count_false_negatives (sc, conf, article_paths):
+    '''
+    Counts and sums false negatives for each category of binaries.
+
+    :param sc: Spark Context
+    :param conf: Configuration
+    :param articles: List of articles to 
+    '''
     sqlContext = SQLContext(sc)
+    articles = article_paths.map (lambda a : SUtil.read_article (a) )
     ab = count_false_negatives_by_type (sqlContext, conf.ctdAB, articles, 0, 3, "AB")
     bc = count_false_negatives_by_type (sqlContext, conf.ctdBC, articles, 0, 2, "BC")
     ac = count_false_negatives_by_type (sqlContext, conf.ctdAC, articles, 0, 3, "AC")
     return ab + bc + ac
     
-'''
-load the pmid -> date map 
-foreach preprocessed article
-   for all asserted binaries found in CTD
-      b: detect binaries asserted in an article predating the binarys reference articles
-      nb: detect binaries asserted not before the date of reference articles
-   tp += b + nb
-   fp += count all asserted binaries not in CTD
-fn = count CTD assertions found in no preprocessed article
-precision = tp / ( tp + fp)
-recall = tp / ( tp + fn )
-'''
 def evaluate (conf):
+    '''
+    Evaluate the output of a Chemotext2 run.
+
+    :param conf: The configuration to work with.
+
+    load the pmid -> date map 
+    foreach preprocessed article
+       for all asserted binaries found in CTD
+          b: sum corroborated binaries asserted in articles predating their references
+          nb: sum binaries asserted not before reference dates
+          tp += b + nb
+    fp += sum asserted binaries not in CTD
+    fn = sum CTD assertions found in no preprocessed article
+    precision = tp / ( tp + fp)
+    recall = tp / ( tp + fn )
+    '''
     logger.info ("Evaluating Chemotext2 output: {0}".format (conf.input_dir))
     sc = SparkUtil.get_spark_context (conf)
     articles = glob.glob (os.path.join (conf.input_dir, "*fxml.json"))
@@ -106,6 +137,9 @@ def evaluate (conf):
         logger.info ("precision/recall can't be calculated. true_positives: {0}".format (true_positives))
 
 def main ():
+    '''
+    Parse command line arguments for the evaluation pipeline.
+    '''
     parser = argparse.ArgumentParser()
     parser.add_argument("--host",  help="Mesos master host")
     parser.add_argument("--name",  help="Spark framework name")
