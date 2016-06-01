@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set +x
+set -x
 
 if [ -z "$STARS_HOME" ]; then
     echo STARS_HOME must be set
@@ -9,7 +9,7 @@ fi
 
 echo STARS_HOME: $STARS_HOME
 
-FRAMEWORK_NAME="Chemotext2:Evaluate[Python]"
+FRAMEWORK_NAME="Chemotext2:[Medline][Python]"
 
 dev () {
     APP_HOME=$STARS_HOME/chemotext
@@ -66,44 +66,75 @@ prod () {
     echo mesos master: $MESOS_MASTER
     echo spark home: $SPARK_HOME
 }
+hatteras () {
+    APP_HOME=/home/scox/dev/chemotext
+    SPARK_HOME=/home/scox/dev/spark/current
+    DATA_HOME=$STARS_HOME/var/chemotext
+    SAMPLESIZE=1 #0.001
+    VENV=/home/scox/dev/venv
+    env=hatteras
+    MEDLINE_DATA=$DATA_HOME/pubmed/medline/medline16n0736.xml
+    ARG_EXECUTOR_MEMORY=10G
+#    ARG_TOTAL_EXECUTOR_CORES=16
+    ARG_NUM_EXECUTORS=4
+    ARG_DRIVER_MEMORY=5G
+#    ARG_TASK_CPUS=4
+#    ARG_DEFAULT_PARALLELISM=4
+#    ARG_MAX_RESULT_SIZE=4G
+    ARG_MESOS_MASTER="--master $MESOS_MASTER"
+}
 
-test
-#prod 
+config () {
+    PUBMEDC=$DATA_HOME/pubmed/articles
+    CTDACPATH=$DATA_HOME/ctd/CTD_chemicals_diseases.csv
+    CTDABPATH=$DATA_HOME/ctd/CTD_chem_gene_ixns.csv
+    CTDBCPATH=$DATA_HOME/ctd/CTD_genes_diseases.csv
+    LEXER_CONFIGPATH=$TMCHEM_HOME/config/banner_JOINT_${env}.xml
+    LEXER_CACHEFILE=$TMCHEM_HOME/cacheFile.tsv
+    LEXER_DICTIONARY=$TMCHEM_HOME/data/dict.txt
+    INPUTPATH=$DATA_HOME/output.mesh.2
+    export JAVA_OPTS="-Xmx${ARG_DRIVER_MEMORY} -Xms${ARG_DRIVER_MEMORY}"
+    cd $APP_HOME
+}
 
-set -x
-PUBMEDC=$DATA_HOME/pubmed/articles
-CTDACPATH=$DATA_HOME/ctd/CTD_chemicals_diseases.csv
-CTDABPATH=$DATA_HOME/ctd/CTD_chem_gene_ixns.csv
-CTDBCPATH=$DATA_HOME/ctd/CTD_genes_diseases.csv
-LEXER_CONFIGPATH=$TMCHEM_HOME/config/banner_JOINT_${env}.xml
-LEXER_CACHEFILE=$TMCHEM_HOME/cacheFile.tsv
-LEXER_DICTIONARY=$TMCHEM_HOME/data/dict.txt
-INPUTPATH=$DATA_HOME/output.mesh.2
-#INPUTPATH=$DATA_HOME/output.tmchem
-set +x
+execute () {
+    set -x
+    config
+    export JAVA_OPTS="-Xms10G -Xmx10G"
+    $SPARK_HOME/bin/spark-submit \
+	$ARG_MESOS_MASTER \
+	--num-executors $ARG_NUM_EXECUTORS  \
+	--driver-memory $ARG_DRIVER_MEMORY \
+	--conf spark.executor.memory=$ARG_EXECUTOR_MEMORY \
+	--packages com.databricks:spark-csv_2.10:1.4.0 \
+	--packages com.databricks:spark-xml_2.10:0.3.3 \
+	--py-files python/chemotext_util.py \
+	$APP_HOME/python/medline.py \
+	--host  $MESOS_MASTER \
+	--name  $FRAMEWORK_NAME \
+	--venv  $VENV \
+	--input $MEDLINE_DATA
+}
 
-cd $APP_HOME
-export JAVA_OPTS="-Xmx10G -Xms10G"
+getarg () {
+    echo $1 | sed s,.*=,,
+}
 
-$SPARK_HOME/bin/spark-submit \
-    $ARG_MESOS_MASTER \
-    --executor-memory $ARG_EXECUTOR_MEMORY \
-    --total-executor-cores $ARG_TOTAL_EXECUTOR_CORES \
-    --num-executors $ARG_NUM_EXECUTORS  \
-    --driver-memory $ARG_DRIVER_MEMORY \
-    --conf spark.task.cpus=$ARG_TASK_CPUS \
-    --conf spark.default.parallelism=$ARG_DEFAULT_PARALLELISM \
-    --conf spark.driver.maxResultSize=$ARG_MAX_RESULT_SIZE \
-    --packages com.databricks:spark-csv_2.10:1.4.0 \
-    --packages com.databricks:spark-xml_2.10:0.3.3 \
-    \
-    --py-files python/chemotext_util.py \
-    $APP_HOME/python/medline.py \
-    --host  $MESOS_MASTER \
-    --name  $FRAMEWORK_NAME \
-    --venv  $VENV \
-    --input $MEDLINE_DATA
+for arg in $*; do
+    case $arg in
+	--master\=*)
+	    MESOS_MASTER=$(getarg $arg)
+	    shift;;
+	--env\=*)
+	    env=$(getarg $arg)
+	    $env
+	    shift;;
+    esac
+done
+execute
 
 
-#    --input python/medline.xml
-
+#	--conf spark.task.cpus=$ARG_TASK_CPUS \
+#	--total-executor-cores $ARG_TOTAL_EXECUTOR_CORES \
+#	--conf spark.default.parallelism=$ARG_DEFAULT_PARALLELISM \
+#	--conf spark.driver.maxResultSize=$ARG_MAX_RESULT_SIZE \

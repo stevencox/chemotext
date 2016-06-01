@@ -1,0 +1,52 @@
+#!/bin/bash
+
+#SBATCH --job-name=chemotext
+#SBATCH --nodes=2
+#SBATCH --time=100:00:00
+#SBATCH --mem=80000
+#SBATCH --cpus-per-task=4
+#SBATCH --partition=batch
+#SBATCH --qos=short
+#SBATCH --output="/home/scox/dev/chemotext/chemotext-%j.stdout"
+#SBATCH --error="/home/scox/dev/chemotext/chemotext-%j.stderr"
+
+source ~/.bashrc
+source bin/slurm-conf.sh
+
+ENV=hatteras
+
+getarg () {
+    echo $1 | sed s,.*=,,
+}   
+    
+for arg in $*; do
+    case $arg in
+        --app\=*)
+            export SPARK_APP=$(getarg $arg)
+            shift;;
+	--env\=*)
+	    ENV=$(getarg $arg)
+	    shift;;
+    esac
+done    
+export JAVA_OPTS="-Xms10G -Xmx10G"
+
+set -x
+MASTER=$(hostname)
+srun $SPARK_ON_SLURM/start-cluster.sh $MASTER &
+sleep 10
+
+# Make dynamic:
+export STARS_HOME=/projects/stars
+
+$SPARK_APP \
+    --master=spark://$MASTER:7077 \
+    --env=$ENV
+
+echo Ending Spark cluster execution.
+set +x
+
+exit 0
+
+
+#SBATCH --ntasks-per-node=4

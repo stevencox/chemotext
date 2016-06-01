@@ -24,6 +24,9 @@ from pyspark.sql import SQLContext
 
 logger = LoggingUtil.init_logging (__file__)
 
+f = glob.glob ("/projects/stars/var/chemotext/pubmed/medline/medline16n0736.xml")
+print "file----------------------------------------> {0}".format (f)
+
 def parse_line (xml_string):
     root = ET.fromstring(xml_string.encode('utf-8'))
 
@@ -112,8 +115,8 @@ def analyze_medline (conf):
         load(conf.input_xml).rdd
 
     vocab = { 'A' : [], 'B' : [], 'C' : [] }
-    with open ('vocabulary.json') as stream:
-        vocab = json.loads (stream.read ())
+#    with open ('vocabulary.json') as stream:
+#        vocab = json.loads (stream.read ())
     vocabDistrib = sc.broadcast (vocab)
 
     terms = medline. \
