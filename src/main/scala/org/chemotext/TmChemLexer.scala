@@ -33,6 +33,16 @@ case class TmChemLexerConf (
   cacheFileName  : String,
   dictionaryPath : String)
 
+object TmChemLexer {
+  var instance : TmChemLexer = null
+  def getInstance (conf : TmChemLexerConf) = {
+    if (instance == null) {
+      instance = new TmChemLexer (conf)
+    }
+    instance
+  }
+}
+
 class TmChemLexer (conf : TmChemLexerConf) extends Lexer {
 
   val logger = LoggerFactory.getLogger("TmChemLexer[Banner]")

@@ -76,6 +76,7 @@ LEXER_CONFIGPATH=$TMCHEM_HOME/config/banner_JOINT_${env}.xml
 LEXER_CACHEFILE=$TMCHEM_HOME/cacheFile.tsv
 LEXER_DICTIONARY=$TMCHEM_HOME/data/dict.txt
 OUTPUTPATH=$DATA_HOME/output.mesh.2
+CHEMLEX=mesh
 #OUTPUTPATH=$DATA_HOME/output.tmchem
 set +x
 
@@ -139,6 +140,7 @@ $SPARK_HOME/bin/spark-submit \
     --home $APP_HOME \
     --articles $PUBMEDC \
     --mesh $MESHXML \
+    --chemlex $CHEMLEX \
     --sample $SAMPLESIZE \
     --ctdAC $CTDACPATH \
     --ctdAB $CTDABPATH \

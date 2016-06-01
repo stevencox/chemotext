@@ -149,6 +149,7 @@ object Processor {
   case class QuantifierConfig (
     article   : String,
     meshXML   : String,
+    chemlex   : String,
     lexerConf : TmChemLexerConf
   )
 
@@ -278,7 +279,10 @@ object Processor {
     var id   : String = null
     try {
       //val A_lexer = new AMeshLexer (config.meshXML)
-      val A_lexer = new TmChemLexer (config.lexerConf)
+      //val A_lexer = TmChemLexer.getInstance (config.lexerConf)
+      val A_lexer = 
+        if (config.chemlex == "mesh") new AMeshLexer (config.meshXML)
+        else TmChemLexer.getInstance (config.lexerConf)
       val B_lexer = new BMeshLexer (config.meshXML)
       val C_lexer = new CMeshLexer (config.meshXML)
       val parser = new PubMedArticleParser (config.article)
@@ -684,6 +688,7 @@ object Processor {
     articlePaths : RDD[String],
     meshXML      : String,
     sampleSize   : Double,
+    chemlex      : String,
     lexerConf    : TmChemLexerConf) = 
   {
     logger.info ("== Analyze articles; calculate binaries.")
@@ -693,14 +698,15 @@ object Processor {
       findPairs (QuantifierConfig (
         article   = article._1,
         meshXML   = article._2,
+        chemlex   = chemlex,
         lexerConf = lexerConf))
-      //findPairs (article._1, article._2)
     }.cache ()
   }
 
   def executeChemotextPipeline (
     articlePaths : RDD[String],
     meshXML      : String,
+    chemlex      : String,
     lexerConf    : TmChemLexerConf,
     AB           : RDD[Fact],
     BC           : RDD[Fact],
@@ -713,7 +719,7 @@ object Processor {
     articlePaths.collect.foreach { a =>
       logger.debug (s"--> $a")
     }
-    val articles = generatePairs (articlePaths, meshXML, sampleSize, lexerConf)
+    val articles = generatePairs (articlePaths, meshXML, sampleSize, chemlex, lexerConf)
     val annotatedArticles = annotateBinaries (articles, AB, BC, AC)
     calculateTriples (annotatedArticles, outputPath)
   }
@@ -727,6 +733,7 @@ class PipelineContext (
   sparkContext    : SparkContext,
   appHome         : String = "../data/pubmed",
   meshXML         : String = "../data/pubmed/mesh/desc2016.xml",
+  chemlex         : String = "mesh",
   lexerConf       : TmChemLexerConf,
   articleRootPath : String = "../data/pubmed/articles",
   ctdACPath       : String = "../data/pubmed/ctd/CTD_chemicals_diseases.csv",
@@ -775,6 +782,7 @@ class PipelineContext (
     Processor.executeChemotextPipeline (
       articlePaths   = sparkContext.parallelize (articleList),
       meshXML        = meshXML,
+      chemlex        = chemlex,
       lexerConf      = lexerConf,
       AB             = AB,
       BC             = BC,
@@ -803,6 +811,7 @@ object PipelineApp {
       .opt[String]("home",     descr = "Application home directory")
       .opt[String]("articles", descr = "Root directory of articles to analyze")
       .opt[String]("mesh",     descr = "Path to MeSH XML definition file")
+      .opt[String]("chemlex", descr = "Chemical lexer to use (mesh|tmchem)")
       .opt[Double]("sample",   descr = "Sample size to apply to total article collection")
       .opt[String]("ctdAC",    descr = "Path to CTD AC data file")
       .opt[String]("ctdAB",    descr = "Path to CTD AB data file")
@@ -816,6 +825,7 @@ object PipelineApp {
     val appHome = opts[String]("home")
     val articleRootPath = opts[String]("articles")
     val meshXML = opts[String]("mesh")
+    val chemlex = opts[String]("chemlex")
     val sampleSize = opts[Double]("sample")
     val ctdACPath = opts[String]("ctdAC")
     val ctdABPath = opts[String]("ctdAB")
@@ -829,6 +839,7 @@ object PipelineApp {
     logger.info (s"appHome        : $appHome")
     logger.info (s"articleRootPath: $articleRootPath")
     logger.info (s"meshXML        : $meshXML")
+    logger.info (s"chemlex        : $chemlex")
     logger.info (s"sampleSize     : $sampleSize")
     logger.info (s"ctdACPath      : $ctdACPath")
     logger.info (s"ctdABPath      : $ctdABPath")
@@ -842,20 +853,21 @@ object PipelineApp {
     val conf = new SparkConf().setAppName(appName)
     val sc = new SparkContext(conf)
     val pipeline = new PipelineContext (
-      sc,
-      appHome,
-      meshXML,
-      TmChemLexerConf (
+      sparkContext = sc,
+      appHome      = appHome,
+      meshXML      = meshXML,
+      chemlex      = chemlex,
+      lexerConf    = TmChemLexerConf (
         configPath     = lexerConfigPath,
         cacheFileName  = lexerCacheFile,
         dictionaryPath = lexerDictPath
       ),
-      articleRootPath,
-      ctdACPath,
-      ctdABPath,
-      ctdBCPath,
-      sampleSize.toDouble,
-      outputPath)
+      articleRootPath = articleRootPath,
+      ctdACPath = ctdACPath,
+      ctdABPath = ctdABPath,
+      ctdBCPath = ctdBCPath,
+      sampleSize = sampleSize.toDouble,
+      outputPath = outputPath)
 
     pipeline.execute ()    
   }
