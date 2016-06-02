@@ -12,5 +12,8 @@ for f in files:
         obj = json.loads(stream.read ())
         triples = obj ["ABC"]
         if len (triples) > 0:
-            print "{0} -> \n    {1}".format (f, triples)
+#            print "{0} -> \n    {1}".format (f, triples)
+            for t in triples:
+                if t["B"].find ("kinase") > -1:
+                    print "{0}: {1}".format (f, t)
 sys.exit (0)

@@ -11,6 +11,25 @@ echo STARS_HOME: $STARS_HOME
 
 FRAMEWORK_NAME="Chemotext:Pipeline[Scala]"
 
+env=test
+
+getarg () {
+    echo $1 | sed s,.*=,,
+}
+
+# Started tmchem run: 2016-06-02T13:21:38-0400
+
+for arg in $*; do
+    case $arg in
+	--master\=*)
+	    MESOS_MASTER=$(getarg $arg)
+	    shift;;
+	--env\=*)
+	    env=$(getarg $arg)
+	    shift;;
+    esac
+done
+
 dev () {
     APP_HOME=$STARS_HOME/chemotext
     SPARK_HOME=$STARS_HOME/spark/current
@@ -19,9 +38,7 @@ dev () {
     TMCHEM_HOME=$STARS_HOME/data/tmchem
     SAMPLESIZE=0.001
     env=dev
-
     MESOS_MASTER=local[2]
-
     ARG_MESOS_MASTER="--master $MESOS_MASTER"
     ARG_EXECUTOR_MEMORY=10G
     ARG_TOTAL_EXECUTOR_CORES=2
@@ -33,7 +50,6 @@ dev () {
 }
 test () {
     dev
-
     DATA_HOME=$STARS_HOME/chemotext/data
     TMCHEM_HOME=$APP_HOME/data/tmchem
     SAMPLESIZE=1
@@ -47,7 +63,6 @@ prod () {
     TMCHEM_HOME=$DATA_HOME/tmchem
     SAMPLESIZE=1 #0.001
     env=prod
-
     ARG_MESOS_MASTER=
     ARG_EXECUTOR_MEMORY=70G
     ARG_TOTAL_EXECUTOR_CORES=200
@@ -56,29 +71,11 @@ prod () {
     ARG_TASK_CPUS=10
     ARG_DEFAULT_PARALLELISM=200
     ARG_MAX_RESULT_SIZE=4G
-
     export MESOS_MASTER=stars-c1.edc.renci.org:5050
     export MESOS_MASTER=$(hostname):5050
     echo mesos master: $MESOS_MASTER
     echo spark home: $SPARK_HOME
 }
-
-test
-#prod 
-
-
-set -x
-PUBMEDC=$DATA_HOME/pubmed/articles
-CTDACPATH=$DATA_HOME/ctd/CTD_chemicals_diseases.csv
-CTDABPATH=$DATA_HOME/ctd/CTD_chem_gene_ixns.csv
-CTDBCPATH=$DATA_HOME/ctd/CTD_genes_diseases.csv
-LEXER_CONFIGPATH=$TMCHEM_HOME/config/banner_JOINT_${env}.xml
-LEXER_CACHEFILE=$TMCHEM_HOME/cacheFile.tsv
-LEXER_DICTIONARY=$TMCHEM_HOME/data/dict.txt
-OUTPUTPATH=$DATA_HOME/output.mesh.2
-CHEMLEX=mesh
-#OUTPUTPATH=$DATA_HOME/output.tmchem
-set +x
 
 genTmChemConfig () {
     rm -rf $LEXER_CONFIGPATH
@@ -119,33 +116,54 @@ genTmChemConfig () {
 EOF
 }
 
-genTmChemConfig
+config () {
+    set -x
+    PUBMEDC=$DATA_HOME/pubmed/articles
+    CTDACPATH=$DATA_HOME/ctd/CTD_chemicals_diseases.csv
+    CTDABPATH=$DATA_HOME/ctd/CTD_chem_gene_ixns.csv
+    CTDBCPATH=$DATA_HOME/ctd/CTD_genes_diseases.csv
+    LEXER_CONFIGPATH=$TMCHEM_HOME/config/banner_JOINT_${env}.xml
+    LEXER_CACHEFILE=$TMCHEM_HOME/cacheFile.tsv
+    LEXER_DICTIONARY=$TMCHEM_HOME/data/dict.txt
+    OUTPUTPATH=$DATA_HOME/output.mesh.2
+    CHEMLEX=tmchem #mesh
+    set +x
+    export JAVA_OPTS="-Xmx5G -Xms5G"
+    genTmChemConfig
+}
 
-cd $APP_HOME
-export JAVA_OPTS="-Xmx10G -Xms10G"
+execute () {
+    $env
+    config
+    cd $APP_HOME
+    $SPARK_HOME/bin/spark-submit \
+	$ARG_MESOS_MASTER \
+	--executor-memory $ARG_EXECUTOR_MEMORY \
+	--driver-memory $ARG_DRIVER_MEMORY \
+	--conf spark.driver.maxResultSize=$ARG_MAX_RESULT_SIZE \
+	--class "org.chemotext.PipelineApp" \
+	$( find $APP_HOME -name "*assembly*.jar" -print | grep scala ) \
+	\
+	--name $FRAMEWORK_NAME \
+	--home $APP_HOME \
+	--articles $PUBMEDC \
+	--mesh $MESHXML \
+	--chemlex $CHEMLEX \
+	--sample $SAMPLESIZE \
+	--ctdAC $CTDACPATH \
+	--ctdAB $CTDABPATH \
+	--ctdBC $CTDBCPATH \
+	--output $OUTPUTPATH \
+	--lexerConfig $LEXER_CONFIGPATH \
+	--lexerCache $LEXER_CACHEFILE \
+	--lexerDict $LEXER_DICTIONARY    
+}
 
-$SPARK_HOME/bin/spark-submit \
-    --class "org.chemotext.PipelineApp" \
-    $ARG_MESOS_MASTER \
-    --executor-memory $ARG_EXECUTOR_MEMORY \
-    --total-executor-cores $ARG_TOTAL_EXECUTOR_CORES \
-    --num-executors $ARG_NUM_EXECUTORS  \
-    --driver-memory $ARG_DRIVER_MEMORY \
-    --conf spark.task.cpus=$ARG_TASK_CPUS \
-    --conf spark.default.parallelism=$ARG_DEFAULT_PARALLELISM \
-    --conf spark.driver.maxResultSize=$ARG_MAX_RESULT_SIZE \
-    $( find $APP_HOME -name "*assembly*.jar" -print | grep scala ) \
-    \
-    --name $FRAMEWORK_NAME \
-    --home $APP_HOME \
-    --articles $PUBMEDC \
-    --mesh $MESHXML \
-    --chemlex $CHEMLEX \
-    --sample $SAMPLESIZE \
-    --ctdAC $CTDACPATH \
-    --ctdAB $CTDABPATH \
-    --ctdBC $CTDBCPATH \
-    --output $OUTPUTPATH \
-    --lexerConfig $LEXER_CONFIGPATH \
-    --lexerCache $LEXER_CACHEFILE \
-    --lexerDict $LEXER_DICTIONARY
+execute
+
+noop () {
+	--conf spark.default.parallelism=$ARG_DEFAULT_PARALLELISM \
+	--conf spark.task.cpus=$ARG_TASK_CPUS \
+	--total-executor-cores $ARG_TOTAL_EXECUTOR_CORES \
+	--num-executors $ARG_NUM_EXECUTORS  \
+}
