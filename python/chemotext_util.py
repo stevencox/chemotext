@@ -149,12 +149,16 @@ class SerializationUtil(object):
             result = datetime.datetime.strptime ("{0}-{1}-{2}".format (1, month, year), "%d-%b-%Y")
         return result
 
-class EvaluateConf(object):
-    def __init__(self, host, venv, framework_name, input_dir, ctdAB, ctdBC, ctdAC):
+class Conf(object):
+    def __init__(self, host, venv, framework_name, input_dir):
         self.host = host
         self.venv = venv
         self.framework_name = framework_name
         self.input_dir = input_dir
+    
+class EvaluateConf(Conf):
+    def __init__(self, host, venv, framework_name, input_dir, ctdAB, ctdBC, ctdAC):
+        super(EvaluateConf, self).__init__(host, venv, framework_name, input_dir)
         self.ctdAB = ctdAB
         self.ctdBC = ctdBC
         self.ctdAC = ctdAC
@@ -165,6 +169,11 @@ class MedlineConf(object):
         self.venv = venv
         self.framework_name = framework_name
         self.input_xml = input_xml
+
+class Word2VecConf(Conf):
+    def __init__(self, host, venv, framework_name, input_dir, mesh):
+        super(Word2VecConf, self).__init__(host, venv, framework_name, input_dir)
+        self.mesh = mesh
 
 class MedlineQuant(object):
     def __init__(self, pmid, date, A, B, C):
@@ -192,3 +201,21 @@ class LoggingUtil(object):
         FORMAT = '%(asctime)-15s %(filename)s %(funcName)s %(levelname)s: %(message)s'
         logging.basicConfig(format=FORMAT, level=logging.INFO)
         return logging.getLogger(name)
+
+
+class Cache(object):
+    def __init__(self, root="."):
+        self.path = os.path.join (root, "cache")
+        if not os.path.isdir (self.path):
+            os.makedirs (self.path)
+    def get (self, name):
+        val = None
+        obj = os.path.join (self.path, name)
+        if os.path.exists (obj):
+            with open (obj, 'r') as stream:
+                val = json.loads (stream.read ())
+        return val
+    def put (self, name, obj):
+        obj_path = os.path.join (self.path, name)
+        with open (obj_path, 'w') as stream:
+            stream.write (json.dumps (obj, sort_keys=True, indent=2))

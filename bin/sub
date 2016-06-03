@@ -1,6 +1,8 @@
 #!/bin/bash
 
-set +x
+# Started tmchem run: 2016-06-02T13:21:38-0400
+
+set -x
 
 if [ -z "$STARS_HOME" ]; then
     echo STARS_HOME must be set
@@ -9,26 +11,29 @@ fi
 
 echo STARS_HOME: $STARS_HOME
 
-FRAMEWORK_NAME="Chemotext:Pipeline[Scala]"
-
 env=test
+app=ct2
 
 getarg () {
     echo $1 | sed s,.*=,,
 }
 
-# Started tmchem run: 2016-06-02T13:21:38-0400
-
-for arg in $*; do
-    case $arg in
-	--master\=*)
-	    MESOS_MASTER=$(getarg $arg)
-	    shift;;
-	--env\=*)
-	    env=$(getarg $arg)
-	    shift;;
-    esac
-done
+main () {
+    for arg in $*; do
+        case $arg in
+	    --master\=*)
+	        MESOS_MASTER=$(getarg $arg)
+	        shift;;
+	    --env\=*)
+	        env=$(getarg $arg)
+	        shift;;
+            --app\=*)
+                app=$(getarg $arg)
+                shift;;
+        esac
+    done
+    execute
+}
 
 dev () {
     APP_HOME=$STARS_HOME/chemotext
@@ -47,6 +52,10 @@ dev () {
     ARG_TASK_CPUS=1
     ARG_DEFAULT_PARALLELISM=2
     ARG_MAX_RESULT_SIZE=1G
+
+    VENV=$STARS_HOME/venv
+    env=dev
+    MEDLINE_DATA=$DATA_HOME/pubmed/medline/medline16n0736.xml
 }
 test () {
     dev
@@ -75,6 +84,19 @@ prod () {
     export MESOS_MASTER=$(hostname):5050
     echo mesos master: $MESOS_MASTER
     echo spark home: $SPARK_HOME
+}
+hatteras () {
+    APP_HOME=/home/scox/dev/chemotext
+    SPARK_HOME=/home/scox/dev/spark/current
+    DATA_HOME=$STARS_HOME/var/chemotext
+    SAMPLESIZE=1 #0.001
+    VENV=/home/scox/dev/venv
+    env=hatteras
+    MEDLINE_DATA=$DATA_HOME/pubmed/medline/medline16n0736.xml
+    ARG_EXECUTOR_MEMORY=10G
+    ARG_NUM_EXECUTORS=4
+    ARG_DRIVER_MEMORY=5G
+    ARG_MESOS_MASTER="--master $MESOS_MASTER"
 }
 
 genTmChemConfig () {
@@ -117,7 +139,6 @@ EOF
 }
 
 config () {
-    set -x
     PUBMEDC=$DATA_HOME/pubmed/articles
     CTDACPATH=$DATA_HOME/ctd/CTD_chemicals_diseases.csv
     CTDABPATH=$DATA_HOME/ctd/CTD_chem_gene_ixns.csv
@@ -126,8 +147,8 @@ config () {
     LEXER_CACHEFILE=$TMCHEM_HOME/cacheFile.tsv
     LEXER_DICTIONARY=$TMCHEM_HOME/data/dict.txt
     OUTPUTPATH=$DATA_HOME/output.mesh.2
+    INPUTPATH=$OUTPUTPATH
     CHEMLEX=tmchem #mesh
-    set +x
     export JAVA_OPTS="-Xmx5G -Xms5G"
     genTmChemConfig
 }
@@ -136,6 +157,11 @@ execute () {
     $env
     config
     cd $APP_HOME
+    execute_${app}
+}
+
+execute_ct2 () {
+    FRAMEWORK_NAME="Chemotext:Pipeline[Scala]"
     $SPARK_HOME/bin/spark-submit \
 	$ARG_MESOS_MASTER \
 	--executor-memory $ARG_EXECUTOR_MEMORY \
@@ -159,11 +185,69 @@ execute () {
 	--lexerDict $LEXER_DICTIONARY    
 }
 
-execute
+execute_ct1 () {
+    FRAMEWORK_NAME="Chemotext:CT1[Python]"
+    $SPARK_HOME/bin/spark-submit \
+	$ARG_MESOS_MASTER \
+	--num-executors $ARG_NUM_EXECUTORS  \
+	--driver-memory $ARG_DRIVER_MEMORY \
+	--packages com.databricks:spark-xml_2.10:0.3.3 \
+        \
+	--py-files python/chemotext_util.py \
+	$APP_HOME/python/medline.py \
+	--host  $MESOS_MASTER \
+	--name  $FRAMEWORK_NAME \
+	--venv  $VENV \
+	--input $MEDLINE_DATA
+}
+
+execute_eval () {
+    FRAMEWORK_NAME="Chemotext:Eval[Python]"
+    $SPARK_HOME/bin/spark-submit \
+        $ARG_MESOS_MASTER \
+        --num-executors $ARG_NUM_EXECUTORS  \
+        --driver-memory $ARG_DRIVER_MEMORY \
+	--conf spark.executor.memory=$ARG_EXECUTOR_MEMORY \
+        --packages com.databricks:spark-csv_2.10:1.4.0 \
+        \
+        --py-files python/chemotext_util.py \
+        $APP_HOME/python/evaluate.py \
+        --host  $MESOS_MASTER \
+        --input $INPUTPATH \
+        --name  $FRAMEWORK_NAME \
+        --venv  $VENV \
+        --ctdAB $CTDABPATH \
+        --ctdBC $CTDBCPATH \
+        --ctdAC $CTDACPATH
+}
+
+execute_w2v () {
+    FRAMEWORK_NAME="Chemotext:Word2Vec[Python]"
+    $SPARK_HOME/bin/spark-submit \
+        $ARG_MESOS_MASTER \
+        --num-executors $ARG_NUM_EXECUTORS  \
+        --driver-memory $ARG_DRIVER_MEMORY \
+	--conf spark.executor.memory=$ARG_EXECUTOR_MEMORY \
+        \
+        --py-files python/chemotext_util.py \
+        $APP_HOME/python/word2vec.py \
+        --master  $MESOS_MASTER \
+        --name  $FRAMEWORK_NAME \
+        --input $PUBMEDC \
+        --mesh  $MESHXML \
+        --home  $APP_HOME \
+        --venv  $VENV
+}
+
+main $*
+
+
+
+
 
 noop () {
 	--conf spark.default.parallelism=$ARG_DEFAULT_PARALLELISM \
 	--conf spark.task.cpus=$ARG_TASK_CPUS \
 	--total-executor-cores $ARG_TOTAL_EXECUTOR_CORES \
-	--num-executors $ARG_NUM_EXECUTORS  \
+	--num-executors $ARG_NUM_EXECUTORS  
 }
