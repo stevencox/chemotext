@@ -89,6 +89,8 @@ hatteras () {
     APP_HOME=/home/scox/dev/chemotext
     SPARK_HOME=/home/scox/dev/spark/current
     DATA_HOME=$STARS_HOME/var/chemotext
+    MESHXML=$DATA_HOME/mesh/desc2016_2.xml
+    TMCHEM_HOME=$DATA_HOME/tmchem
     SAMPLESIZE=1 #0.001
     VENV=/home/scox/dev/venv
     env=hatteras

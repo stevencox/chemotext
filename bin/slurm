@@ -15,10 +15,28 @@ source ~/.bashrc
 source bin/slurm-conf.sh
 ENV=hatteras
 SPARK_APP=bin/sub
+APP=ct2
 
+start_cluster () {
+    export JAVA_OPTS="-Xms10G -Xmx10G"
+    MASTER=$(hostname)
+    srun $SPARK_ON_SLURM/start-cluster.sh $MASTER &
+    sleep 10
+}
+
+start_app () {
+# Make dynamic:
+    export STARS_HOME=/projects/stars
+    
+    $SPARK_APP \
+	--master=spark://$MASTER:7077 \
+	--env=$ENV \
+	--app=$APP
+    echo Ending Spark cluster execution.
+}
 getarg () {
     echo $1 | sed s,.*=,,
-}   
+}
 main () {    
     for arg in $*; do
         case $arg in
@@ -33,26 +51,10 @@ main () {
 	        shift;;
         esac
     done
+    start_cluster
+    start_app
 }
-
-export JAVA_OPTS="-Xms10G -Xmx10G"
-MASTER=$(hostname)
-srun $SPARK_ON_SLURM/start-cluster.sh $MASTER &
-sleep 10
-
-# Make dynamic:
-export STARS_HOME=/projects/stars
-
-$SPARK_APP \
-    --master=spark://$MASTER:7077 \
-    --env=$ENV \
-    --app=$APP
-
-echo Ending Spark cluster execution.
 
 main $*
 
 exit 0
-
-
-#SBATCH --ntasks-per-node=4
