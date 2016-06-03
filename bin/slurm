@@ -10,28 +10,32 @@
 #SBATCH --output="/home/scox/dev/chemotext/chemotext-%j.stdout"
 #SBATCH --error="/home/scox/dev/chemotext/chemotext-%j.stderr"
 
+set -x
 source ~/.bashrc
 source bin/slurm-conf.sh
-
 ENV=hatteras
+SPARK_APP=bin/sub
 
 getarg () {
     echo $1 | sed s,.*=,,
 }   
-    
-for arg in $*; do
-    case $arg in
-        --app\=*)
-            export SPARK_APP=$(getarg $arg)
-            shift;;
-	--env\=*)
-	    ENV=$(getarg $arg)
-	    shift;;
-    esac
-done    
-export JAVA_OPTS="-Xms10G -Xmx10G"
+main () {    
+    for arg in $*; do
+        case $arg in
+            --sapp\=*)
+                export SPARK_APP=$(getarg $arg)
+                shift;;
+            --app\=*)
+                APP=$(getarg $arg)
+                shift;;
+	    --env\=*)
+	        ENV=$(getarg $arg)
+	        shift;;
+        esac
+    done
+}
 
-set -x
+export JAVA_OPTS="-Xms10G -Xmx10G"
 MASTER=$(hostname)
 srun $SPARK_ON_SLURM/start-cluster.sh $MASTER &
 sleep 10
@@ -41,10 +45,12 @@ export STARS_HOME=/projects/stars
 
 $SPARK_APP \
     --master=spark://$MASTER:7077 \
-    --env=$ENV
+    --env=$ENV \
+    --app=$APP
 
 echo Ending Spark cluster execution.
-set +x
+
+main $*
 
 exit 0
 
