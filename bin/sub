@@ -20,8 +20,8 @@ dev () {
     MESOS_MASTER=local[2]
     ARG_MESOS_MASTER="--master $MESOS_MASTER"
     ARG_EXECUTOR_MEMORY=10G
-    ARG_MAX_RESULT_SIZE=1G
-    ARG_DRIVER_MEMORY=15G
+#    ARG_MAX_RESULT_SIZE=1G
+    ARG_DRIVER_MEMORY=10G
  }
 test () {
     dev
@@ -32,17 +32,15 @@ test () {
 prod () {
     SAMPLESIZE=1
     ARG_MESOS_MASTER=
-    ARG_EXECUTOR_MEMORY=70G
-    ARG_TOTAL_EXECUTOR_CORES=200
-    ARG_NUM_EXECUTORS=20
+    ARG_EXECUTOR_MEMORY=140G
     ARG_DRIVER_MEMORY=3G
-    ARG_TASK_CPUS=10
-    ARG_DEFAULT_PARALLELISM=200
-    ARG_MAX_RESULT_SIZE=4G
+#    ARG_TOTAL_EXECUTOR_CORES=200
+#    ARG_NUM_EXECUTORS=20
+#    ARG_TASK_CPUS=10
+#    ARG_DEFAULT_PARALLELISM=200
+#    ARG_MAX_RESULT_SIZE=4G
     export MESOS_MASTER=stars-c1.edc.renci.org:5050
     export MESOS_MASTER=$(hostname):5050
-    echo mesos master: $MESOS_MASTER
-    echo spark home: $SPARK_HOME
 }
 hatteras () {
     #MEDLINE_DATA=$DATA_HOME/pubmed/medline/medline16n0736.xml
@@ -52,7 +50,7 @@ hatteras () {
     SAMPLESIZE=1 #0.001
     VENV=/home/scox/dev/venv
     ARG_EXECUTOR_MEMORY=10G
-    ARG_NUM_EXECUTORS=4
+#    ARG_NUM_EXECUTORS=4
     ARG_DRIVER_MEMORY=5G
     ARG_MESOS_MASTER="--master $MESOS_MASTER"
 }
@@ -115,7 +113,7 @@ config () {
     LEXER_CONFIGPATH=$TMCHEM_HOME/config/banner_JOINT_${env}.xml
     LEXER_CACHEFILE=$TMCHEM_HOME/cacheFile.tsv
     LEXER_DICTIONARY=$TMCHEM_HOME/data/dict.txt
-    OUTPUTPATH=$DATA_HOME/output.mesh.2
+    OUTPUTPATH=$DATA_HOME/output.tmchem
     INPUTPATH=$OUTPUTPATH
     mkdir -p $OUTPUTPATH
     export JAVA_OPTS="-Xmx5G -Xms5G"
@@ -168,7 +166,7 @@ execute_ct2 () {
     spark \
 	--class "org.chemotext.PipelineApp" \
 	$( find $APP_HOME -name "*assembly*.jar" -print | grep scala ) \
-	--name "Chemotext:Pipeline[Scala]" \
+	--name "Chemotext:Chemotext2[Scala]" \
 	--home $APP_HOME \
 	--articles $PUBMEDC \
 	--mesh $MESHXML \
@@ -198,9 +196,9 @@ execute_eval () {
         --py-files python/chemotext_util.py \
         $APP_HOME/python/evaluate.py \
         --host  $MESOS_MASTER \
-        --input $INPUTPATH \
         --name  "Chemotext:Eval[Python]" \
         --venv  $VENV \
+        --input $INPUTPATH \
         --ctdAB $CTDABPATH \
         --ctdBC $CTDBCPATH \
         --ctdAC $CTDACPATH
@@ -212,10 +210,24 @@ execute_w2v () {
         $APP_HOME/python/word2vec.py \
         --master $MESOS_MASTER \
         --name   "Chemotext:Word2Vec[Python]" \
-        --input  $PUBMEDC \
-        --mesh   $MESHXML \
+        --venv   $VENV \
         --home   $APP_HOME \
-        --venv   $VENV
+        --input  $PUBMEDC \
+        --mesh   $MESHXML
+}
+
+execute_kinase () {
+    UNIPROT=$STARS_HOME/var/chemotext/uniprot/idA_P04637.txt
+    INPUTPATH=$STARS_HOME/var/chemotext/output.tmchem
+    spark \
+        --py-files python/chemotext_util.py \
+        $APP_HOME/python/kinase.py \
+        --master  $MESOS_MASTER \
+        --name    "Chemotext:Kinase[Python]" \
+        --venv    $VENV \
+        --home    $APP_HOME \
+        --input   $INPUTPATH \
+        --uniprot $UNIPROT
 }
 
 main $*

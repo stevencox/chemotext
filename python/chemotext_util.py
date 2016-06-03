@@ -175,6 +175,20 @@ class Word2VecConf(Conf):
         super(Word2VecConf, self).__init__(host, venv, framework_name, input_dir)
         self.mesh = mesh
 
+class KinaseConf(Conf):
+    def __init__(self, host, venv, framework_name, input_dir, uniprot):
+        super(KinaseConf, self).__init__(host, venv, framework_name, input_dir)
+        self.uniprot = uniprot
+
+class P53Inter(object):
+    def __init__(self, A, B, alt_A, alt_B):
+        self.A = A
+        self.B = B
+        self.alt_A = alt_A
+        self.alt_B = alt_B
+    def __str__ (self):
+        return "[\n  A: {0}\n  B: {1}\n  alt_A: {2}\n  alt_B: {3} ]".format (self.A, self.B, self.alt_A, self.alt_B)
+
 class MedlineQuant(object):
     def __init__(self, pmid, date, A, B, C):
         self.pmid = pmid
