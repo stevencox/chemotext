@@ -3,8 +3,6 @@ import json
 import glob
 import HTMLParser
 import logging
-#import nltk
-#import nltk.data
 import os
 import string
 import socket
@@ -13,7 +11,6 @@ import sys
 import traceback
 import xml.parsers.expat
 from mesh import MeSH
-#from nltk import word_tokenize
 try:
     from lxml import etree as et
 except ImportError:

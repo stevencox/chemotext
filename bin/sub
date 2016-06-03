@@ -14,64 +14,23 @@ echo STARS_HOME: $STARS_HOME
 env=test
 app=ct2
 
-getarg () {
-    echo $1 | sed s,.*=,,
-}
-
-main () {
-    for arg in $*; do
-        case $arg in
-	    --master\=*)
-	        MESOS_MASTER=$(getarg $arg)
-	        shift;;
-	    --env\=*)
-	        env=$(getarg $arg)
-	        shift;;
-            --app\=*)
-                app=$(getarg $arg)
-                shift;;
-        esac
-    done
-    execute
-}
-
 dev () {
-    APP_HOME=$STARS_HOME/chemotext
-    SPARK_HOME=$STARS_HOME/spark/current
-    DATA_HOME=$STARS_HOME/data
-    MESHXML=$STARS_HOME/data/pubmed/mesh/desc2016_2.xml
-    TMCHEM_HOME=$STARS_HOME/data/tmchem
     SAMPLESIZE=0.001
     env=dev
     MESOS_MASTER=local[2]
     ARG_MESOS_MASTER="--master $MESOS_MASTER"
     ARG_EXECUTOR_MEMORY=10G
-    ARG_TOTAL_EXECUTOR_CORES=2
-    ARG_NUM_EXECUTORS=2
-    ARG_DRIVER_MEMORY=15G
-    ARG_TASK_CPUS=1
-    ARG_DEFAULT_PARALLELISM=2
     ARG_MAX_RESULT_SIZE=1G
-
-    VENV=$STARS_HOME/venv
-    env=dev
-    MEDLINE_DATA=$DATA_HOME/pubmed/medline/medline16n0736.xml
-}
+    ARG_DRIVER_MEMORY=15G
+ }
 test () {
     dev
-    DATA_HOME=$STARS_HOME/chemotext/data
+    DATA_HOME=$STARS_HOME/app/chemotext/data
     TMCHEM_HOME=$APP_HOME/data/tmchem
     SAMPLESIZE=1
-    env=test
 }
 prod () {
-    APP_HOME=$STARS_HOME/app/chemotext
-    SPARK_HOME=$STARS_HOME/stack/spark/current
-    DATA_HOME=$STARS_HOME/var/chemotext
-    MESHXML=$DATA_HOME/mesh/desc2016_2.xml
-    TMCHEM_HOME=$DATA_HOME/tmchem
-    SAMPLESIZE=1 #0.001
-    env=prod
+    SAMPLESIZE=1
     ARG_MESOS_MASTER=
     ARG_EXECUTOR_MEMORY=70G
     ARG_TOTAL_EXECUTOR_CORES=200
@@ -86,15 +45,12 @@ prod () {
     echo spark home: $SPARK_HOME
 }
 hatteras () {
+    #MEDLINE_DATA=$DATA_HOME/pubmed/medline/medline16n0736.xml
     APP_HOME=/home/scox/dev/chemotext
     SPARK_HOME=/home/scox/dev/spark/current
     DATA_HOME=$STARS_HOME/var/chemotext
-    MESHXML=$DATA_HOME/mesh/desc2016_2.xml
-    TMCHEM_HOME=$DATA_HOME/tmchem
     SAMPLESIZE=1 #0.001
     VENV=/home/scox/dev/venv
-    env=hatteras
-    MEDLINE_DATA=$DATA_HOME/pubmed/medline/medline16n0736.xml
     ARG_EXECUTOR_MEMORY=10G
     ARG_NUM_EXECUTORS=4
     ARG_DRIVER_MEMORY=5G
@@ -140,6 +96,17 @@ genTmChemConfig () {
 EOF
 }
 
+init () {
+    APP_HOME=$STARS_HOME/app/chemotext
+    SPARK_HOME=$STARS_HOME/stack/spark/current
+    DATA_HOME=$STARS_HOME/var/chemotext
+    MESHXML=$DATA_HOME/mesh/desc2016_2.xml
+    TMCHEM_HOME=$DATA_HOME/tmchem
+    VENV=$STARS_HOME/venv
+    MEDLINE_DATA=$DATA_HOME/pubmed/medline/medline16n0736.xml
+    CHEMLEX=tmchem #mesh
+}
+
 config () {
     PUBMEDC=$DATA_HOME/pubmed/articles
     CTDACPATH=$DATA_HOME/ctd/CTD_chemicals_diseases.csv
@@ -150,7 +117,7 @@ config () {
     LEXER_DICTIONARY=$TMCHEM_HOME/data/dict.txt
     OUTPUTPATH=$DATA_HOME/output.mesh.2
     INPUTPATH=$OUTPUTPATH
-    CHEMLEX=tmchem #mesh
+    mkdir -p $OUTPUTPATH
     export JAVA_OPTS="-Xmx5G -Xms5G"
     genTmChemConfig
 }
@@ -162,17 +129,46 @@ execute () {
     execute_${app}
 }
 
-execute_ct2 () {
-    FRAMEWORK_NAME="Chemotext:Pipeline[Scala]"
+getarg () {
+    echo $1 | sed s,.*=,,
+}
+
+main () {
+    init
+    for arg in $*; do
+        case $arg in
+	    --master\=*)
+	        MESOS_MASTER=$(getarg $arg)
+	        shift;;
+	    --env\=*)
+	        env=$(getarg $arg)
+	        shift;;
+            --chemlex\=*)
+                CHEMLEX=$(getarg $arg)
+                shift;;
+            --app\=*)
+                app=$(getarg $arg)
+                shift;;
+        esac
+    done
+    execute
+}
+
+spark () {
     $SPARK_HOME/bin/spark-submit \
 	$ARG_MESOS_MASTER \
-	--executor-memory $ARG_EXECUTOR_MEMORY \
-	--driver-memory $ARG_DRIVER_MEMORY \
-	--conf spark.driver.maxResultSize=$ARG_MAX_RESULT_SIZE \
+	--conf spark.driver.memory=$ARG_DRIVER_MEMORY \
+	--conf spark.executor.memory=$ARG_EXECUTOR_MEMORY \
+        --packages com.databricks:spark-xml_2.10:0.3.3 \
+        --packages com.databricks:spark-csv_2.10:1.4.0 \
+        $*
+}
+
+execute_ct2 () {
+    spark \
 	--class "org.chemotext.PipelineApp" \
 	$( find $APP_HOME -name "*assembly*.jar" -print | grep scala ) \
-	\
-	--name $FRAMEWORK_NAME \
+	--name "Chemotext:Pipeline[Scala]" \
 	--home $APP_HOME \
 	--articles $PUBMEDC \
 	--mesh $MESHXML \
@@ -184,39 +180,26 @@ execute_ct2 () {
 	--output $OUTPUTPATH \
 	--lexerConfig $LEXER_CONFIGPATH \
 	--lexerCache $LEXER_CACHEFILE \
-	--lexerDict $LEXER_DICTIONARY    
+	--lexerDict $LEXER_DICTIONARY
 }
 
 execute_ct1 () {
-    FRAMEWORK_NAME="Chemotext:CT1[Python]"
-    $SPARK_HOME/bin/spark-submit \
-	$ARG_MESOS_MASTER \
-	--num-executors $ARG_NUM_EXECUTORS  \
-	--driver-memory $ARG_DRIVER_MEMORY \
-	--packages com.databricks:spark-xml_2.10:0.3.3 \
-        \
+    spark \
 	--py-files python/chemotext_util.py \
 	$APP_HOME/python/medline.py \
 	--host  $MESOS_MASTER \
-	--name  $FRAMEWORK_NAME \
+	--name  "Chemotext:CT1[Python]" \
 	--venv  $VENV \
 	--input $MEDLINE_DATA
 }
 
 execute_eval () {
-    FRAMEWORK_NAME="Chemotext:Eval[Python]"
-    $SPARK_HOME/bin/spark-submit \
-        $ARG_MESOS_MASTER \
-        --num-executors $ARG_NUM_EXECUTORS  \
-        --driver-memory $ARG_DRIVER_MEMORY \
-	--conf spark.executor.memory=$ARG_EXECUTOR_MEMORY \
-        --packages com.databricks:spark-csv_2.10:1.4.0 \
-        \
+    spark \
         --py-files python/chemotext_util.py \
         $APP_HOME/python/evaluate.py \
         --host  $MESOS_MASTER \
         --input $INPUTPATH \
-        --name  $FRAMEWORK_NAME \
+        --name  "Chemotext:Eval[Python]" \
         --venv  $VENV \
         --ctdAB $CTDABPATH \
         --ctdBC $CTDBCPATH \
@@ -224,32 +207,15 @@ execute_eval () {
 }
 
 execute_w2v () {
-    FRAMEWORK_NAME="Chemotext:Word2Vec[Python]"
-    $SPARK_HOME/bin/spark-submit \
-        $ARG_MESOS_MASTER \
-        --num-executors $ARG_NUM_EXECUTORS  \
-        --driver-memory $ARG_DRIVER_MEMORY \
-	--conf spark.executor.memory=$ARG_EXECUTOR_MEMORY \
-        \
+    spark \
         --py-files python/chemotext_util.py \
         $APP_HOME/python/word2vec.py \
-        --master  $MESOS_MASTER \
-        --name  $FRAMEWORK_NAME \
-        --input $PUBMEDC \
-        --mesh  $MESHXML \
-        --home  $APP_HOME \
-        --venv  $VENV
+        --master $MESOS_MASTER \
+        --name   "Chemotext:Word2Vec[Python]" \
+        --input  $PUBMEDC \
+        --mesh   $MESHXML \
+        --home   $APP_HOME \
+        --venv   $VENV
 }
 
 main $*
-
-
-
-
-
-noop () {
-	--conf spark.default.parallelism=$ARG_DEFAULT_PARALLELISM \
-	--conf spark.task.cpus=$ARG_TASK_CPUS \
-	--total-executor-cores $ARG_TOTAL_EXECUTOR_CORES \
-	--num-executors $ARG_NUM_EXECUTORS  
-}

@@ -1,0 +1,13 @@
+#!/bin/bash
+
+set -e
+
+for f in $(find . -name "*.nxml" -print); do
+    newName=$(echo $f | sed -e "s,.nxml,.fxml,")
+    if [ ! -f $newName ]; then
+        echo "  --fixing ($f->$newName)"
+        cat $f | sed -e "s,.*DOCTYPE.*,," > $newName
+    fi
+done
+
+exit 0
