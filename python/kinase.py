@@ -54,17 +54,48 @@ def lexer (article, A, B):
     result = []
     a_match = []
     b_match = []
+    loc = 0
     for para in article.paragraphs:
         for sentence in para['sentences']:
             for a in A.value:
-                if sentence.find (a) > -1:
-                    a_match.append (a)
+                if len(a) > 3:
+                    if " " in a:
+                        pos = sentence.find (a)
+                        if pos > -1:
+                            a_match.append ([ a, loc + pos ])
+                    else:
+                        pos = sentence.find (" %s " % a)
+                        if pos > -1:
+                            a_match.append ([ a, loc + pos ])
+            '''
+            words = sentence.split (" ")
+            for word in words:
+                for a in A.value:
+                    if len(a) < 3 and not a in [ 'for' ]: # temporarily avoid spurious stop word and single letter matches
+                        continue
+                    sentence = sentence.replace (".", " ")
+                    if " " in a:
+                        pos = sentence.find (a)
+                        if pos > -1:
+                            a_match.append ([ a, pos ]) 
+                    else:
+                        pos = sentence.find (" %s " % a)
+                        if pos > -1:
+                            a_match.append ([ a, pos ])
+
+                    #pos = sentence.find (a)
+                    #if pos > -1:
+                    #    a_match.append ([ a, pos ])
+            '''
             for b in B.value:
-                if sentence.find (b) > -1:
-                    b_match.append (b)
+                pos = sentence.find (b)
+                if pos > -1:
+                    b_match.append ([ b, loc + pos ])
+            loc = loc + len (sentence)
     for a in a_match:
         for b in b_match:
-            result.append ([ a, b, article.fileName ])
+            result.append ([ a[0], a[1], b[0], b[1], article.id, article.date, article.fileName ])
+            #result.append ("{0}-{1}-{2}-{3}-{4}".format (a, b, article.id, article.date, article.fileName))
     return result
 
 def execute (conf, home):
@@ -75,11 +106,6 @@ def execute (conf, home):
     article_list = cache.get ('articles')
     if article_list is None or len(article_list) == 0:
         article_list = glob.glob (os.path.join (conf.input_dir, "*.fxml.json"))
-        '''
-        article_list = sc.parallelize (dirs). \
-                       flatMap (lambda d : glob.glob (os.path.join (d, "*.fxml.json") )). \
-                       collect ()
-        '''
         cache.put ('articles', article_list)
         
     logger.info ("Load articles...")
@@ -113,6 +139,8 @@ def execute (conf, home):
     matches = articles. \
         flatMap (lambda a : lexer (a, broadcastA, broadcastB)). \
         collect ()
+
+#        distinct (). \
 
     logger.info ("Output...")
     for m in matches:
