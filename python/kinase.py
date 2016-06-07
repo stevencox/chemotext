@@ -191,7 +191,7 @@ class DataLake(object):
         logger.info ("Kinases from inAct+ProQinase: {0}".format (A.count ()))
 
         logger.info ("Add MeSH derived kinase terms to list of As...")
-        skiplist = [ 'for', 'gene', 'complete', None ]
+        skiplist = [ 'for', 'gene', 'complete', 'unsuitable', 'unambiguous', None ]
         with open (self.conf.mesh_syn, "r") as stream:
             mesh = self.sc.parallelize (json.loads (stream.read ()))
             A = A.union (mesh). \
