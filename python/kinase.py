@@ -169,6 +169,7 @@ def load_pro_qinase (sc, conf):
         cache ()
 
 def load_pmid_date (sc, conf):
+    logger.info ("Load medline data to determine dates by pubmed ids")
     sqlContext = SQLContext (sc)
     pmid_date = sqlContext.read.format ('com.databricks.spark.xml'). \
         options(rowTag='MedlineCitation').load(conf.medline)
@@ -197,19 +198,70 @@ def extend_A (sc, A, pro_qinase, mesh):
         logger.info ("Total kinases from inAct/MeSH: {0}".format (A.count ()))
     return A
 
-# TEST
-def hack_pmid_date (binaries, pmid_date):
-    return pmid_date. \
-        union (binaries. \
-               map (lambda b : ( b.pmid, SUtil.parse_date ("1-1-1300") )))
+class Vocabulary(object):
+    def __init__(self, A, B, C=None, ref=None):
+        self.A = A
+        self.B = B
+        self.C = C
+        self.ref = ref
+
+def load_vocabulary (sc, conf):
+    logger.info ("Build A / B vocabulary from inact/pro_qinase/mesh...")
+    inact = load_inact (sc, conf)
+    A = inact.flatMap (lambda inter : get_As (inter, 'uniprotkb:P04637')).distinct().cache ()
+    B = inact.flatMap (lambda inter : get_Bs (inter, 'uniprotkb:P04637')).distinct().cache ()
+    pro_qinase = load_pro_qinase (sc, conf)
+    A = extend_A (sc, A, pro_qinase, "kinases.json")
+    return Vocabulary (A, B, ref=inact)
+
+def find_interactions (sc, vocabulary, articles):
+    logger.info ("Find kinase-p53 interactions in article text.")
+    broadcast_A = sc.broadcast (vocabulary.A.collect ())
+    broadcast_B = sc.broadcast (vocabulary.B.collect ())
+    return articles.flatMap (lambda a : metalexer (a, broadcast_A, broadcast_B) ).cache ()
+
+def find_facts (vocabulary, binaries):
+    logger.info ("Join matches from full text with the inact database to find 'facts'.")
+    binaries_map = binaries.map (lambda r : ( r.L, r) ) # ( A -> KinaseBinary.L )
+    inact_map = vocabulary.ref.flatMap (lambda inter : map_As(inter, 'uniprotkb:P04637') ) # ( A -> P53Inter )
+    return binaries_map.join (inact_map) # ( A -> ( KinaseBinary, P53Inter ) )
+    
+def find_before (pmid_date, facts):
+    logger.info ("Join facts with the pmid->date map to find interactions noticed before published discovery.")
+    ref_pmid_to_binary = facts.map (lambda r : ( r[1][1].pmid, r[1][0] ) ) # ( inAct.REF[pmid] -> KinaseBinary )
+    # TEST. Add reference pmids with late dates.
+    pmid_date = pmid_date.union (ref_pmid_to_binary.map (lambda r : ( r[0], SUtil.parse_date ("1-1-2300") )))
+    before = ref_pmid_to_binary.                             \
+        join (pmid_date).                                    \
+        map (lambda r : r[1][0].copy (ref_date = r[1][1]) ). \
+        filter (lambda k : k.date < k.ref_date).             \
+        distinct ()
+    return before
+
+def load_articles (sc, conf):
+    logger.info ("Load preprocessed JSON as an RDD of article objects")
+    return sc.parallelize (glob.glob (os.path.join (conf.input_dir, "*fxml.json"))). \
+               map (lambda a : SUtil.read_article (a)). \
+               cache ()
 
 def execute (conf, home):
+    sc = SparkUtil.get_spark_context (conf)
+    articles = load_articles (sc, conf)
+    vocabulary = load_vocabulary (sc, conf)
+    binaries = find_interactions (sc, vocabulary, articles)
+    facts = find_facts (vocabulary, binaries)
+    pmid_date = load_pmid_date (sc, conf) # ( pmid -> date )
+    before = find_before (pmid_date, facts)
+    for m in before.collect ():
+        logger.info ("Before-Ref-Date:> {0}".format (m))
 
+def execute0 (conf, home):
     logger.info ("Load preprocessed JSON as an RDD of article objects")
     sc = SparkUtil.get_spark_context (conf)
     articles = sc.parallelize (glob.glob (os.path.join (conf.input_dir, "*fxml.json"))). \
                map (lambda a : SUtil.read_article (a)). \
                cache ()
+    #articles = load_articles (sc, conf)
 
     logger.info ("Build A / B vocabulary from inact/pro_qinase/mesh...")
     inact = load_inact (sc, conf)
@@ -217,34 +269,33 @@ def execute (conf, home):
     B = inact.flatMap (lambda inter : get_Bs (inter, 'uniprotkb:P04637')).distinct().cache ()
     pro_qinase = load_pro_qinase (sc, conf)
     A = extend_A (sc, A, pro_qinase, "kinases.json")
+    # vocabulary = load_vocabulary (sc, conf)
 
     logger.info ("Find kinase-p53 interactions in article text.")
     broadcast_A = sc.broadcast (A.collect ())
     broadcast_B = sc.broadcast (B.collect ())
     binaries = articles.flatMap (lambda a : metalexer (a, broadcast_A, broadcast_B) ).cache ()
-    
+    # binaries = find_interactions (vocabulary, articles)
+
     logger.info ("Load medline data to determine dates by pubmed ids")
     pmid_date = load_pmid_date (sc, conf) # ( pmid -> date )
-    #TEST
-    pmid_date = hack_pmid_date (binaries, pmid_date)
     
     logger.info ("Join matches from full text with the inact database to find 'facts'.")
     binaries_map = binaries.map (lambda r : ( r.L, r) ) # ( A -> KinaseBinary.L )
     inact_map = inact.flatMap (lambda inter : map_As(inter, 'uniprotkb:P04637') ) # ( A -> P53Inter )
     facts = binaries_map.join (inact_map) # ( A -> ( KinaseBinary, P53Inter ) )
+    #facts = find_facts (vocabulary, binaries)
 
     logger.info ("Join facts with the pmid->date map to find interactions noticed before published discovery.")
     ref_pmid_to_binary = facts.map (lambda r : ( r[1][1].pmid, r[1][0] ) ) # ( inAct.REF[pmid] -> KinaseBinary )
     # TEST. Add reference pmids with late dates.
-    pmid_date = pmid_date.union (sc.parallelize ( [
-        ( "22653443", SUtil.parse_date ("1-1-2300") ),
-        ( "16376338", SUtil.parse_date ("1-1-2300") ),
-        ( "22653443", SUtil.parse_date ("1-1-2300") ) ] ) )
+    pmid_date = pmid_date.union (ref_pmid_to_binary.map (lambda r : ( r[0], SUtil.parse_date ("1-1-2300") )))
     before = ref_pmid_to_binary.                             \
         join (pmid_date).                                    \
         map (lambda r : r[1][0].copy (ref_date = r[1][1]) ). \
         filter (lambda k : k.date < k.ref_date).             \
         distinct ()
+    #before = find_before (pmid_date, facts)
     for m in before.collect ():
         logger.info ("Before-Ref-Date:> {0}".format (m))
 
