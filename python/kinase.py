@@ -1,25 +1,23 @@
 import argparse
-import json
 import glob
+import json
 import os
 import re
 import string
 import traceback
-from pyspark.mllib.feature import Word2Vec
-from pyspark.mllib.feature import Word2VecModel
-from chemotext_util import KinaseConf
 from chemotext_util import DataLakeConf
-from chemotext_util import SparkConf
+from chemotext_util import KinaseConf
 from chemotext_util import KinaseBinary
 from chemotext_util import ProQinaseSynonyms
 from chemotext_util import P53Inter
-from chemotext_util import Vocabulary
-from chemotext_util import Cache
-from chemotext_util import WordPosition
-from chemotext_util import Binary
-from chemotext_util import SerializationUtil as SUtil
+from chemotext_util import SerializationUtil as SerUtil
+from chemotext_util import SparkConf
 from chemotext_util import SparkUtil
 from chemotext_util import LoggingUtil
+from chemotext_util import Vocabulary
+from chemotext_util import WordPosition
+from pyspark.mllib.feature import Word2Vec
+from pyspark.mllib.feature import Word2VecModel
 from pyspark.sql import SQLContext
 
 logger = LoggingUtil.init_logging (__file__)
@@ -123,11 +121,13 @@ class Ctext(object):
                                            fact = False,
                                            refs = [],
                                            pmid = article.id,
-                                           date = SUtil.parse_date (article.date),
+                                           date = SerUtil.parse_date (article.date),
                                            file_name = article.fileName)
                     logger.info ("Binary: {0}".format (binary))
                     result.append (binary)
         return result
+
+class Medline(object):
     @staticmethod
     def map_date (r):
         day = 0
@@ -139,7 +139,7 @@ class Ctext(object):
             day = date["Day"]
             month = date["Month"]
             year = date["Year"]
-        return ( pmid, SUtil.parse_date ("{0}-{1}-{2}".format (day, month, year)) )
+        return ( pmid, SerUtil.parse_date ("{0}-{1}-{2}".format (day, month, year)) )
 
 class DataLake(object):
     def __init__(self, sc, conf):
@@ -150,7 +150,7 @@ class DataLake(object):
         logger.info ("Load PubMed Central preprocessed to JSON as an RDD of article objects")
         articles = glob.glob (os.path.join (self.conf.input_dir, "*fxml.json"))
         return self.sc.parallelize (articles). \
-            map (lambda a : SUtil.read_article (a)). \
+            map (lambda a : SerUtil.read_article (a)). \
             cache ()
     def load_inact (self):
         logger.info ("Load inact db...")
@@ -182,7 +182,7 @@ class DataLake(object):
         return pmid_date. \
             select (pmid_date["DateCreated"], pmid_date["PMID"]). \
             rdd. \
-            map (lambda r : Ctext.map_date (r))
+            map (lambda r : Medline.map_date (r))
     def extend_A (self, A):
         A = A.filter (lambda r : r.find ("kinase") > -1).distinct ()
         logger.info ("Kinases from inAct: {0}".format (A.count ()))
@@ -228,7 +228,7 @@ class LitCrawl(object):
         logger.info ("Join facts with the pmid->date map to find interactions noticed before published discovery.")
         ref_pmid_to_binary = facts.map (lambda r : ( r[1][1].pmid, r[1][0] ) ) # ( inAct.REF[pmid] -> KinaseBinary )
         # TEST. Add reference pmids with late dates.
-        pmid_date = pmid_date.union (ref_pmid_to_binary.map (lambda r : ( r[0], SUtil.parse_date ("1-1-2300") )))
+        pmid_date = pmid_date.union (ref_pmid_to_binary.map (lambda r : ( r[0], SerUtil.parse_date ("1-1-2300") )))
         before = ref_pmid_to_binary.                             \
                  join (pmid_date).                                    \
                  map (lambda r : r[1][0].copy (ref_date = r[1][1]) ). \
@@ -278,7 +278,7 @@ def main ():
 main ()
 
 
-'''
+''' Medline data frame schema:
 root                                                                            
  |-- @Owner: string (nullable = true)
  |-- @Status: string (nullable = true)
