@@ -108,8 +108,9 @@ def analyze_medline (conf):
     sqlContext = SQLContext (sc)
     medline = sqlContext.read. \
         format ('com.databricks.spark.xml'). \
-        options(rowTag='MedlineCitation'). \
-        load(conf.input_xml).rdd
+        options(rowTag='MedlineCitation').   \
+        load(conf.input_xml).                \
+        rdd
 
     vocab = { 'A' : [], 'B' : [], 'C' : [] }
 #    with open ('vocabulary.json') as stream:

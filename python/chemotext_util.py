@@ -1,3 +1,4 @@
+import copy
 import datetime
 import json
 import logging
@@ -17,8 +18,8 @@ class WordPosition(object):
         self.paraPos = paraPos
         self.sentPos = sentPos
     def __str__ (self):
-        return """ word:{0}, docPos:{1}, paraPos:{2}, sentPos:{3}""".format (
-            self.id, self.L, self.R, self.docDist, self.paraDist, self.sentDist, self.code, self.fact, self.refs)
+        return """WordPosition(word:{0}, docPos:{1}, paraPos:{2}, sentPos:{3})""".format (
+            self.word, self.docPos, self.paraPos, self.sentPos)
 
 class Binary(object):
     def __init__(self, id, L, R, docDist, paraDist, sentDist, code, fact, refs):
@@ -34,6 +35,22 @@ class Binary(object):
     def __str__ (self):
         return """ id:{0}, L:{1}, R:{2}, docDist:{3}, paraDist:{4}, sentDist:{5}, code:{6}, fact:{7}, refs:{8}""".format (
             self.id, self.L, self.R, self.docDist, self.paraDist, self.sentDist, self.code, self.fact, self.refs)
+
+class KinaseBinary (Binary):
+    def __init__(self, id, L, R, docDist, paraDist, sentDist, code, fact, refs, pmid, date, file_name):
+        super(KinaseBinary, self).__init__(id, L, R, docDist, paraDist, sentDist, code, fact, refs)
+        self.pmid = pmid
+        self.date = date
+        self.file_name = file_name
+        self.ref_date = None
+    def copy (self, ref_date):
+        result = copy.deepcopy (self)
+        self.ref_date = ref_date
+        return self
+    def __str__ (self):
+        return """KinaseBinary(id:{0}, L:{1}, R:{2}, docDist:{3}, paraDist:{4}, sentDist:{5}, code:{6}, fact:{7}, refs:{8}, pmid:{9}, date:{10}, ref_date:{11}""".format (
+            self.id, self.L, self.R, self.docDist, self.paraDist, self.sentDist, self.code, self.fact,
+            self.refs, self.pmid, self.date, self.ref_date)
 
 class Triple(object):
     def __init__(self, A, B, C):
@@ -141,7 +158,13 @@ class SerializationUtil(object):
         return result
     @staticmethod
     def parse_date (date):
-        return datetime.datetime.strptime (date, "%d-%m-%Y")
+#        return datetime.datetime.strptime (date, "%d-%m-%Y")
+        result = None
+        try:
+            result = datetime.datetime.strptime (date, "%d-%m-%Y")
+        except ValueError:
+            print "-----------------------> {0}".format (date)
+        return result
     @staticmethod
     def parse_month_year_date (month, year):
         result = None
@@ -176,18 +199,45 @@ class Word2VecConf(Conf):
         self.mesh = mesh
 
 class KinaseConf(Conf):
-    def __init__(self, host, venv, framework_name, input_dir, uniprot):
+    def __init__(self, host, venv, framework_name, input_dir, inact, medline, kinase_synonyms):
         super(KinaseConf, self).__init__(host, venv, framework_name, input_dir)
-        self.uniprot = uniprot
+        self.inact = inact
+        self.medline = medline
+        self.kinase_synonyms = kinase_synonyms
+
+class KinaseMatch(object):
+    def __init__(self, kinase, kloc, p53, ploc, pmid, date, file_name):
+        self.kinase = kinase
+        self.kloc = kloc
+        self.p53 = p53
+        self.ploc = ploc
+        self.pmid = pmid
+        self.date = date
+        self.file_name = file_name
+
+class ProQinaseSynonyms(object):
+    def __init__(self, name, hgnc_name, syn):
+        self.name = name
+        self.hgnc_name = hgnc_name
+        self.syn = syn
+    def get_names (self):
+        result = [ self.name, self.hgnc_name ]
+        if self.syn:
+            for n in self.syn.split (";"):
+                result.append (n)
+        return result
 
 class P53Inter(object):
-    def __init__(self, A, B, alt_A, alt_B):
+    def __init__(self, A, B, alt_A, alt_B, pmid):
         self.A = A
         self.B = B
         self.alt_A = alt_A
         self.alt_B = alt_B
+        self.pmid = pmid
+
     def __str__ (self):
-        return "[\n  A: {0}\n  B: {1}\n  alt_A: {2}\n  alt_B: {3} ]".format (self.A, self.B, self.alt_A, self.alt_B)
+        return "P53Inter(A: {0}\n  B: {1}\n  alt_A: {2}\n  alt_B: {3} pmid: {4})".format (
+            self.A, self.B, self.alt_A, self.alt_B, self.pmid)
 
 class MedlineQuant(object):
     def __init__(self, pmid, date, A, B, C):
