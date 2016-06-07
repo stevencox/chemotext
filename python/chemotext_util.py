@@ -5,6 +5,13 @@ import logging
 import os
 import socket
 
+class Vocabulary(object):
+    def __init__(self, A, B, C=None, ref=None):
+        self.A = A
+        self.B = B
+        self.C = C
+        self.ref = ref
+
 class Quant(object):
     def __init__(self, before, not_before, false_positives):
         self.before = before
@@ -164,7 +171,7 @@ class SerializationUtil(object):
         try:
             result = datetime.datetime.strptime (date, "%d-%m-%Y")
         except ValueError:
-            print "-----------------------> {0}".format (date)
+            print "ERROR-> {0}".format (date)
         return result
     @staticmethod
     def parse_month_year_date (month, year):
