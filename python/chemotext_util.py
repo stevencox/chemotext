@@ -186,7 +186,13 @@ class Conf(object):
         self.venv = venv
         self.framework_name = framework_name
         self.input_dir = input_dir
-    
+
+class SparkConf(Conf):
+    def __init__(self, host, venv, framework_name):
+        self.host = host
+        self.venv = venv
+        self.framework_name = framework_name
+
 class EvaluateConf(Conf):
     def __init__(self, host, venv, framework_name, input_dir, ctdAB, ctdBC, ctdAC):
         super(EvaluateConf, self).__init__(host, venv, framework_name, input_dir)
@@ -206,12 +212,24 @@ class Word2VecConf(Conf):
         super(Word2VecConf, self).__init__(host, venv, framework_name, input_dir)
         self.mesh = mesh
 
+class DataLakeConf(object):
+    def __init__(self, input_dir, inact, medline, proqinase_syn, mesh_syn):
+        self.input_dir = input_dir
+        self.inact = inact
+        self.medline = medline
+        self.proqinase_syn = proqinase_syn
+        self.mesh_syn = mesh_syn
+
 class KinaseConf(Conf):
-    def __init__(self, host, venv, framework_name, input_dir, inact, medline, kinase_synonyms):
+    def __init__(self, host, venv, framework_name, input_dir, inact, medline, proqinase_syn, mesh_syn):
         super(KinaseConf, self).__init__(host, venv, framework_name, input_dir)
         self.inact = inact
         self.medline = medline
-        self.kinase_synonyms = kinase_synonyms
+        self.proqinase_syn = proqinase_syn
+        self.mesh_syn = mesh_syn
+    def __init__(self, spark_conf, data_lake_conf):
+        self.spark_conf = spark_conf
+        self.data_lake_conf = data_lake_conf
 
 class KinaseMatch(object):
     def __init__(self, kinase, kloc, p53, ploc, pmid, date, file_name):

@@ -8,6 +8,8 @@ import traceback
 from pyspark.mllib.feature import Word2Vec
 from pyspark.mllib.feature import Word2VecModel
 from chemotext_util import KinaseConf
+from chemotext_util import DataLakeConf
+from chemotext_util import SparkConf
 from chemotext_util import KinaseBinary
 from chemotext_util import ProQinaseSynonyms
 from chemotext_util import P53Inter
@@ -140,75 +142,71 @@ class Ctext(object):
         return ( pmid, SUtil.parse_date ("{0}-{1}-{2}".format (day, month, year)) )
 
 class DataLake(object):
+    def __init__(self, sc, conf):
+        self.sc = sc
+        self.conf = conf
     ''' Tools for connecting to data sources '''
-    @staticmethod
-    def load_articles (sc, conf):
+    def load_articles (self):
         logger.info ("Load PubMed Central preprocessed to JSON as an RDD of article objects")
-        articles = glob.glob (os.path.join (conf.input_dir, "*fxml.json"))
-        return sc.parallelize (articles). \
+        articles = glob.glob (os.path.join (self.conf.input_dir, "*fxml.json"))
+        return self.sc.parallelize (articles). \
             map (lambda a : SUtil.read_article (a)). \
             cache ()
-    @staticmethod
-    def load_inact (sc, conf):
+    def load_inact (self):
         logger.info ("Load inact db...")
-        sqlContext = SQLContext(sc)
-        return sqlContext.read.                     \
+        sqlContext = SQLContext(self.sc)
+        return sqlContext.read.                 \
             format('com.databricks.spark.csv'). \
             options(comment='#',                \
                     delimiter='\t').            \
-            load(conf.inact).rdd.               \
+            load(self.conf.inact).rdd.          \
             map (lambda r : P53Inter ( A = r.C0, B = r.C1, 
                                        alt_A = r.C4, alt_B = r.C5, 
                                        pmid = InAct.parse_pmid(r.C8) ) ) . \
             cache ()
-    @staticmethod
-    def load_pro_qinase (sc, conf):
+    def load_pro_qinase (self):
         logger.info ("Load ProQinase Kinase synonym db...")
-        sqlContext = SQLContext(sc)
+        sqlContext = SQLContext(self.sc)
         return sqlContext.read. \
             format('com.databricks.spark.csv'). \
             options (delimiter=' '). \
-            load (conf.kinase_synonyms).rdd. \
+            load (self.conf.proqinase_syn).rdd. \
             flatMap (lambda r : ProQinaseSynonyms (r.C1, r.C2, r.C3).get_names ()). \
             cache ()
-    @staticmethod
-    def load_pmid_date (sc, conf):
+    def load_pmid_date (self):
         logger.info ("Load medline data to determine dates by pubmed ids")
-        sqlContext = SQLContext (sc)
+        sqlContext = SQLContext (self.sc)
         pmid_date = sqlContext.read.format ('com.databricks.spark.xml'). \
-        options(rowTag='MedlineCitation').load(conf.medline)
+        options(rowTag='MedlineCitation').load(self.conf.medline)
         #sample (False, 0.02)
         return pmid_date. \
             select (pmid_date["DateCreated"], pmid_date["PMID"]). \
             rdd. \
             map (lambda r : Ctext.map_date (r))
-    @staticmethod
-    def extend_A (sc, A, pro_qinase, mesh):
+    def extend_A (self, A):
         A = A.filter (lambda r : r.find ("kinase") > -1).distinct ()
         logger.info ("Kinases from inAct: {0}".format (A.count ()))
 
-        A = A.union (pro_qinase)
+        A = A.union (self.load_pro_qinase ())
         logger.info ("Kinases from inAct+ProQinase: {0}".format (A.count ()))
 
         logger.info ("Add MeSH derived kinase terms to list of As...")
         skiplist = [ 'for', 'gene', 'complete', None ]
-        with open ("kinases.json", "r") as stream:
-            mesh = sc.parallelize (json.loads (stream.read ()))
+        with open (self.conf.mesh_syn, "r") as stream:
+            mesh = self.sc.parallelize (json.loads (stream.read ()))
             A = A.union (mesh). \
                 filter (lambda a : a not in skiplist). \
                 distinct ()
             # TEST
-            A = A.union (sc.parallelize ([ "protein kinase c inhibitor protein 1" ]) )
+            A = A.union (self.sc.parallelize ([ "protein kinase c inhibitor protein 1" ]) )
             logger.info ("Total kinases from inAct/MeSH: {0}".format (A.count ()))
         return A
-    @staticmethod
-    def load_vocabulary (sc, conf):
+    def load_vocabulary (self):
         logger.info ("Build A / B vocabulary from inact/pro_qinase/mesh...")
-        inact = DataLake.load_inact (sc, conf)
+        inact = self.load_inact ()
         A = inact.flatMap (lambda inter : InAct.get_As (inter, 'uniprotkb:P04637')).distinct().cache ()
         B = inact.flatMap (lambda inter : InAct.get_Bs (inter, 'uniprotkb:P04637')).distinct().cache ()
-        pro_qinase = DataLake.load_pro_qinase (sc, conf)
-        A = DataLake.extend_A (sc, A, pro_qinase, "kinases.json")
+        A = self.extend_A (A)
         return Vocabulary (A, B, ref=inact)
 
 class LitCrawl(object):
@@ -239,11 +237,12 @@ class LitCrawl(object):
         return before
 
 def execute (conf, home):
-    sc = SparkUtil.get_spark_context (conf)
+    sc = SparkUtil.get_spark_context (conf.spark_conf)
 
-    articles = DataLake.load_articles (sc, conf)
-    vocabulary = DataLake.load_vocabulary (sc, conf)
-    pmid_date = DataLake.load_pmid_date (sc, conf) # ( pmid -> date )
+    data_lake = DataLake (sc, conf.data_lake_conf)
+    articles = data_lake.load_articles ()
+    vocabulary = data_lake.load_vocabulary ()
+    pmid_date = data_lake.load_pmid_date () # ( pmid -> date )
 
     binaries = LitCrawl.find_interactions (sc, vocabulary, articles)
     facts = LitCrawl.find_facts (vocabulary, binaries)
@@ -254,16 +253,26 @@ def execute (conf, home):
 
 def main ():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--master",  help="Mesos master host")
-    parser.add_argument("--name",    help="Spark framework name")
-    parser.add_argument("--input",   help="Data root directory")
-    parser.add_argument("--home",    help="App home")
-    parser.add_argument("--venv",    help="Path to Python virtual environment to use")
-    parser.add_argument("--inact",   help="Path to inAct data")
-    parser.add_argument("--medline", help="Path to Medline data")
-    parser.add_argument("--kinasyn", help="Kinase synonyms")
+    parser.add_argument("--master",    help="Mesos master host")
+    parser.add_argument("--name",      help="Spark framework name")
+    parser.add_argument("--input",     help="Data root directory")
+    parser.add_argument("--home",      help="App home")
+    parser.add_argument("--venv",      help="Path to Python virtual environment to use")
+    parser.add_argument("--inact",     help="Path to inAct data")
+    parser.add_argument("--medline",   help="Path to Medline data")
+    parser.add_argument("--mesh",      help="File containing JSON array of MeSH synonyms")
+    parser.add_argument("--proqinase", help="Kinase synonyms from Pro Qinase")
     args = parser.parse_args()
-    conf = KinaseConf (args.master, args.venv, args.name, args.input, args.inact, args.medline, args.kinasyn)
+    conf = KinaseConf (spark_conf         = SparkConf (
+                           host           = args.master,
+                           venv           = args.venv,
+                           framework_name = args.name),
+                       data_lake_conf = DataLakeConf (
+                           input_dir      = args.input,
+                           inact          = args.inact,
+                           medline        = args.medline, 
+                           proqinase_syn  = args.proqinase,
+                           mesh_syn       = args.mesh ))
     execute (conf, args.home)
 
 main ()
