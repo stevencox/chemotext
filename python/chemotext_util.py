@@ -45,6 +45,7 @@ class KinaseBinary (Binary):
         self.ref_date = None
     def copy (self, ref_date):
         result = copy.deepcopy (self)
+        self.fact = True
         self.ref_date = ref_date
         return self
     def __str__ (self):

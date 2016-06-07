@@ -243,7 +243,8 @@ def execute (conf, home):
     before = ref_pmid_to_binary.                             \
         join (pmid_date).                                    \
         map (lambda r : r[1][0].copy (ref_date = r[1][1]) ). \
-        filter (lambda k : k.date < k.ref_date)
+        filter (lambda k : k.date < k.ref_date).             \
+        distinct ()
     for m in before.collect ():
         logger.info ("Before-Ref-Date:> {0}".format (m))
 
