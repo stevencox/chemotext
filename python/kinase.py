@@ -83,7 +83,7 @@ class Ctext(object):
         para_pos = 0
         sent_pos = 0
         for para in article.paragraphs:
-            for sentence in para['sentences']:
+            for sentence in para.sentences: #['sentences']:
                 sentence = sentence.replace (".", " ")
                 for term in terms.value:
                     if not term or len(term) < 3:
@@ -183,6 +183,14 @@ class DataLake(object):
             select (pmid_date["DateCreated"], pmid_date["PMID"]). \
             rdd. \
             map (lambda r : Medline.map_date (r))
+    def load_vocabulary (self):
+        logger.info ("Build A / B vocabulary from inact/pro_qinase/mesh...")
+        inact = self.load_inact ()
+        A = inact.flatMap (lambda inter : InAct.get_As (inter, 'uniprotkb:P04637')).distinct().cache ()
+        B = inact.flatMap (lambda inter : InAct.get_Bs (inter, 'uniprotkb:P04637')).distinct().cache ()
+        A = self.extend_A (A)
+        A = A.map (lambda a : a.lower ())
+        return Vocabulary (A, B, ref=inact)
     def extend_A (self, A):
         A = A.filter (lambda r : r.find ("kinase") > -1).distinct ()
         logger.info ("Kinases from inAct: {0}".format (A.count ()))
@@ -191,7 +199,8 @@ class DataLake(object):
         logger.info ("Kinases from inAct+ProQinase: {0}".format (A.count ()))
 
         logger.info ("Add MeSH derived kinase terms to list of As...")
-        skiplist = [ 'for', 'gene', 'complete', 'unsuitable', 'unambiguous', None ]
+        skiplist = [ 'for', 'gene', 'complete', 'unsuitable', 'unambiguous', 'met', 'kit', 'name', 'yes',
+                     'fast', 'fused', None ]
         with open (self.conf.mesh_syn, "r") as stream:
             mesh = self.sc.parallelize (json.loads (stream.read ()))
             A = A.union (mesh). \
@@ -201,13 +210,35 @@ class DataLake(object):
             A = A.union (self.sc.parallelize ([ "protein kinase c inhibitor protein 1" ]) )
             logger.info ("Total kinases from inAct/MeSH: {0}".format (A.count ()))
         return A
-    def load_vocabulary (self):
-        logger.info ("Build A / B vocabulary from inact/pro_qinase/mesh...")
-        inact = self.load_inact ()
-        A = inact.flatMap (lambda inter : InAct.get_As (inter, 'uniprotkb:P04637')).distinct().cache ()
-        B = inact.flatMap (lambda inter : InAct.get_Bs (inter, 'uniprotkb:P04637')).distinct().cache ()
-        A = self.extend_A (A)
-        return Vocabulary (A, B, ref=inact)
+
+class WordEmbed(object):
+    def __init__(self, sc, conf, articles):
+        self.sc = sc
+        self.conf = conf
+        if os.path.exists (conf.w2v_model):
+            logger.info ("Load existing word2vec model: {0}".format (self.conf.w2v_model))
+            self.model = Word2VecModel.load (self.sc, self.conf.w2v_model)
+        else:
+            logger.info ("Compute word2vec word embedding model...")
+            text = articles. \
+                   flatMap (lambda a : a.paragraphs ). \
+                   flatMap (lambda p : p.sentences ). \
+                   map (lambda s : s.replace(".", " ").split (" ") )
+            print "text: {0}".format (text.collect ())
+            self.model = Word2Vec (). \
+                         setNumPartitions (100). \
+                         fit (text)
+            self.model.save (self.sc, self.conf.w2v_model)
+    def find_syn (self, word, radius=10):
+        results = []
+        # https://issues.apache.org/jira/browse/SPARK-12016
+        try:
+            if not " " in word:
+                results = self.model.findSynonyms (word, radius)
+        except:
+            pass
+            #logger.info ("word embedding unable to find word {0}".format (word))
+        return results
 
 class LitCrawl(object):
     ''' Crawl the literature in search of interactions '''
@@ -251,6 +282,12 @@ def execute (conf, home):
     for m in before.collect ():
         logger.info ("Before-Ref-Date:> {0}".format (m))
 
+    embed = WordEmbed (sc, conf, articles)
+    for w in vocabulary.A.collect ():
+        for syn in embed.find_syn (w, radius=800):
+            if "kinase" in syn or "p53" in syn:
+                print "   -- {0}:syn>> {1}".format (w, syn)
+            
 def main ():
     parser = argparse.ArgumentParser()
     parser.add_argument("--master",    help="Mesos master host")
@@ -262,17 +299,19 @@ def main ():
     parser.add_argument("--medline",   help="Path to Medline data")
     parser.add_argument("--mesh",      help="File containing JSON array of MeSH synonyms")
     parser.add_argument("--proqinase", help="Kinase synonyms from Pro Qinase")
+    parser.add_argument("--w2v",       help="Word embedding model file")
     args = parser.parse_args()
     conf = KinaseConf (spark_conf         = SparkConf (
                            host           = args.master,
                            venv           = args.venv,
                            framework_name = args.name),
-                       data_lake_conf = DataLakeConf (
+                       data_lake_conf     = DataLakeConf (
                            input_dir      = args.input,
                            inact          = args.inact,
                            medline        = args.medline, 
                            proqinase_syn  = args.proqinase,
-                           mesh_syn       = args.mesh ))
+                           mesh_syn       = args.mesh ),
+                       w2v_model          = args.w2v)
     execute (conf, args.home)
 
 main ()

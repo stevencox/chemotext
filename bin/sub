@@ -222,6 +222,7 @@ execute_kinase () {
     PROQINASEDB=$STARS_HOME/var/chemotext/proqinase/kinase_synonyms.txt
     INACTDB=$STARS_HOME/var/chemotext/inact/idA_P04637.txt
     MESH_KINASE_SYNONYMS=$APP_HOME/kinases.json
+    W2V_MODEL=$DATA_HOME/w2v.model
     spark \
         --py-files python/chemotext_util.py \
         $APP_HOME/python/kinase.py \
@@ -233,7 +234,8 @@ execute_kinase () {
         --inact     $INACTDB \
         --medline   $MEDLINE_DATA \
         --proqinase $PROQINASEDB \
-        --mesh      $MESH_KINASE_SYNONYMS
+        --mesh      $MESH_KINASE_SYNONYMS \
+        --w2v       $W2V_MODEL
 }
 
 main $*
