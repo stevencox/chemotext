@@ -83,7 +83,7 @@ class Ctext(object):
         para_pos = 0
         sent_pos = 0
         for para in article.paragraphs:
-            for sentence in para.sentences: #['sentences']:
+            for sentence in para.sentences:
                 sentence = sentence.replace (".", " ")
                 for term in terms.value:
                     if not term or len(term) < 3:
@@ -149,7 +149,7 @@ class DataLake(object):
     def load_articles (self):
         logger.info ("Load PubMed Central preprocessed to JSON as an RDD of article objects")
         articles = glob.glob (os.path.join (self.conf.input_dir, "*fxml.json"))
-        return self.sc.parallelize (articles). \
+        return self.sc.parallelize (articles).         \
             map (lambda a : SerUtil.read_article (a)). \
             cache ()
     def load_intact (self):
@@ -159,7 +159,7 @@ class DataLake(object):
             format('com.databricks.spark.csv'). \
             options(comment='#',                \
                     delimiter='\t').            \
-            load(self.conf.intact).rdd.          \
+            load(self.conf.intact).rdd.         \
             map (lambda r : P53Inter ( A = r.C0, B = r.C1, 
                                        alt_A = r.C4, alt_B = r.C5, 
                                        pmid = Intact.parse_pmid(r.C8) ) ) . \
@@ -167,9 +167,9 @@ class DataLake(object):
     def load_pro_qinase (self):
         logger.info ("Load ProQinase Kinase synonym db...")
         sqlContext = SQLContext(self.sc)
-        return sqlContext.read. \
+        return sqlContext.read.                 \
             format('com.databricks.spark.csv'). \
-            options (delimiter=' '). \
+            options (delimiter=' ').            \
             load (self.conf.proqinase_syn).rdd. \
             flatMap (lambda r : ProQinaseSynonyms (r.C1, r.C2, r.C3).get_names ()). \
             cache ()
@@ -179,9 +179,9 @@ class DataLake(object):
         pmid_date = sqlContext.read.format ('com.databricks.spark.xml'). \
         options(rowTag='MedlineCitation').load(self.conf.medline)
         #sample (False, 0.02)
-        return pmid_date. \
+        return pmid_date.                                         \
             select (pmid_date["DateCreated"], pmid_date["PMID"]). \
-            rdd. \
+            rdd.                                                  \
             map (lambda r : Medline.map_date (r))
     def load_vocabulary (self, kin2prot):
         logger.info ("Build A / B vocabulary from intact/pro_qinase/mesh...")
@@ -208,10 +208,8 @@ class DataLake(object):
     def extend_A (self, A):
         A = A.union (self.load_pro_qinase ())
         logger.info ("Kinases from intact+ProQinase: {0}".format (A.count ()))
-
-        logger.info ("Add MeSH derived kinase terms to list of As...")
         skiplist = [ 'for', 'gene', 'complete', 'unsuitable', 'unambiguous', 'met', 'kit', 'name', 'yes',
-                     'fast', 'fused', 'top', 'cuts', 'fragment', 'kind', 'factor', None ]
+                     'fast', 'fused', 'top', 'cuts', 'fragment', 'kind', 'factor', 'p53', None ]
         with open (self.conf.mesh_syn, "r") as stream:
             mesh = self.sc.parallelize (json.loads (stream.read ()))
             # TEST
@@ -253,31 +251,24 @@ class WordEmbed(object):
         self.conf = conf
         if os.path.exists (conf.w2v_model):
             logger.info ("Load existing word2vec model: {0}".format (self.conf.w2v_model))
-            '''
-            https://issues.apache.org/jira/browse/SPARK-12016
-            
-            '''
             self.model = Word2VecModel.load (self.sc, self.conf.w2v_model)
         else:
             logger.info ("Compute word2vec word embedding model...")
-            text = articles. \
-                   flatMap (lambda a : a.paragraphs ). \
-                   flatMap (lambda p : p.sentences ). \
+            text = articles.                                    \
+                   flatMap (lambda a : a.paragraphs ).          \
+                   flatMap (lambda p : p.sentences ).           \
                    map (lambda s : s.replace(".", " ").split (" ") )
-            print "text: {0}".format (text.collect ())
-            self.model = Word2Vec (). \
+            self.model = Word2Vec ().            \
                          setNumPartitions (100). \
                          fit (text)
             self.model.save (self.sc, self.conf.w2v_model)
     def find_syn (self, word, radius=10):
         results = []
-        # https://issues.apache.org/jira/browse/SPARK-12016
         try:
             if not " " in word:
                 results = self.model.findSynonyms (word, radius)
         except:
             pass
-            #logger.info ("word embedding unable to find word {0}".format (word))
         return results
 
 class LitCrawl(object):
@@ -300,10 +291,10 @@ class LitCrawl(object):
         ref_pmid_to_binary = facts.map (lambda r : ( r[1][1].pmid, r[1][0] ) ) # ( intact.REF[pmid] -> KinaseBinary )
         # TEST. Add reference pmids with late dates.
         pmid_date = pmid_date.union (ref_pmid_to_binary.map (lambda r : ( r[0], SerUtil.parse_date ("1-1-2300") )))
-        before = ref_pmid_to_binary.                             \
-                 join (pmid_date).                                    \
-                 map (lambda r : r[1][0].copy (ref_date = r[1][1]) ). \
-                 filter (lambda k : k.date and k.ref_date and k.date < k.ref_date).             \
+        before = ref_pmid_to_binary.                                                \
+                 join (pmid_date).                                                  \
+                 map (lambda r : r[1][0].copy (ref_date = r[1][1]) ).               \
+                 filter (lambda k : k.date and k.ref_date and k.date < k.ref_date). \
                  distinct ()
         return before
 
@@ -327,7 +318,7 @@ def execute (conf, home):
     for w in vocabulary.A.collect ():
         for syn in embed.find_syn (w, radius=800):
             if "kinase" in syn or "p53" in syn:
-                print "   -- {0}:syn>> {1}".format (w, syn)
+                print "   --[ {0} ]:syn>> {1}".format (w, syn)
             
 def main ():
     parser = argparse.ArgumentParser()
@@ -358,174 +349,3 @@ def main ():
     execute (conf, args.home)
 
 main ()
-
-
-''' Medline data frame schema:
-root                                                                            
- |-- @Owner: string (nullable = true)
- |-- @Status: string (nullable = true)
- |-- @VersionDate: string (nullable = true)
- |-- @VersionID: long (nullable = true)
- |-- Article: struct (nullable = true)
- |    |-- @PubModel: string (nullable = true)
- |    |-- Abstract: struct (nullable = true)
- |    |    |-- AbstractText: array (nullable = true)
- |    |    |    |-- element: struct (containsNull = true)
- |    |    |    |    |-- #VALUE: string (nullable = true)
- |    |    |    |    |-- @Label: string (nullable = true)
- |    |    |    |    |-- @NlmCategory: string (nullable = true)
- |    |    |-- CopyrightInformation: string (nullable = true)
- |    |-- ArticleDate: struct (nullable = true)
- |    |    |-- @DateType: string (nullable = true)
- |    |    |-- Day: long (nullable = true)
- |    |    |-- Month: long (nullable = true)
- |    |    |-- Year: long (nullable = true)
- |    |-- ArticleTitle: string (nullable = true)
- |    |-- AuthorList: struct (nullable = true)
- |    |    |-- @CompleteYN: string (nullable = true)
- |    |    |-- Author: array (nullable = true)
- |    |    |    |-- element: struct (containsNull = true)
- |    |    |    |    |-- @ValidYN: string (nullable = true)
- |    |    |    |    |-- AffiliationInfo: struct (nullable = true)
- |    |    |    |    |    |-- Affiliation: string (nullable = true)
- |    |    |    |    |-- CollectiveName: string (nullable = true)
- |    |    |    |    |-- ForeName: string (nullable = true)
- |    |    |    |    |-- Initials: string (nullable = true)
- |    |    |    |    |-- LastName: string (nullable = true)
- |    |    |    |    |-- Suffix: string (nullable = true)
- |    |-- DataBankList: struct (nullable = true)
- |    |    |-- @CompleteYN: string (nullable = true)
- |    |    |-- DataBank: struct (nullable = true)
- |    |    |    |-- AccessionNumberList: struct (nullable = true)
- |    |    |    |    |-- AccessionNumber: array (nullable = true)
- |    |    |    |    |    |-- element: string (containsNull = true)
- |    |    |    |-- DataBankName: string (nullable = true)
- |    |-- ELocationID: array (nullable = true)
- |    |    |-- element: struct (containsNull = true)
- |    |    |    |-- #VALUE: string (nullable = true)
- |    |    |    |-- @EIdType: string (nullable = true)
- |    |    |    |-- @ValidYN: string (nullable = true)
- |    |-- GrantList: struct (nullable = true)
- |    |    |-- @CompleteYN: string (nullable = true)
- |    |    |-- Grant: array (nullable = true)
- |    |    |    |-- element: struct (containsNull = true)
- |    |    |    |    |-- Acronym: string (nullable = true)
- |    |    |    |    |-- Agency: string (nullable = true)
- |    |    |    |    |-- Country: string (nullable = true)
- |    |    |    |    |-- GrantID: string (nullable = true)
- |    |-- Journal: struct (nullable = true)
- |    |    |-- ISOAbbreviation: string (nullable = true)
- |    |    |-- ISSN: struct (nullable = true)
- |    |    |    |-- #VALUE: string (nullable = true)
- |    |    |    |-- @IssnType: string (nullable = true)
- |    |    |-- JournalIssue: struct (nullable = true)
- |    |    |    |-- @CitedMedium: string (nullable = true)
- |    |    |    |-- Issue: string (nullable = true)
- |    |    |    |-- PubDate: struct (nullable = true)
- |    |    |    |    |-- Day: long (nullable = true)
- |    |    |    |    |-- MedlineDate: string (nullable = true)
- |    |    |    |    |-- Month: string (nullable = true)
- |    |    |    |    |-- Season: string (nullable = true)
- |    |    |    |    |-- Year: long (nullable = true)
- |    |    |    |-- Volume: string (nullable = true)
- |    |    |-- Title: string (nullable = true)
- |    |-- Language: array (nullable = true)
- |    |    |-- element: string (containsNull = true)
- |    |-- Pagination: struct (nullable = true)
- |    |    |-- MedlinePgn: string (nullable = true)
- |    |-- PublicationTypeList: struct (nullable = true)
- |    |    |-- PublicationType: array (nullable = true)
- |    |    |    |-- element: struct (containsNull = true)
- |    |    |    |    |-- #VALUE: string (nullable = true)
- |    |    |    |    |-- @UI: string (nullable = true)
- |    |-- VernacularTitle: string (nullable = true)
- |-- ChemicalList: struct (nullable = true)
- |    |-- Chemical: array (nullable = true)
- |    |    |-- element: struct (containsNull = true)
- |    |    |    |-- NameOfSubstance: struct (nullable = true)
- |    |    |    |    |-- #VALUE: string (nullable = true)
- |    |    |    |    |-- @UI: string (nullable = true)
- |    |    |    |-- RegistryNumber: string (nullable = true)
- |-- CitationSubset: array (nullable = true)
- |    |-- element: string (containsNull = true)
- |-- CommentsCorrectionsList: struct (nullable = true)
- |    |-- CommentsCorrections: array (nullable = true)
- |    |    |-- element: struct (containsNull = true)
- |    |    |    |-- @RefType: string (nullable = true)
- |    |    |    |-- Note: string (nullable = true)
- |    |    |    |-- PMID: struct (nullable = true)
- |    |    |    |    |-- #VALUE: long (nullable = true)
- |    |    |    |    |-- @Version: long (nullable = true)
- |    |    |    |-- RefSource: string (nullable = true)
- |-- DateCompleted: struct (nullable = true)
- |    |-- Day: long (nullable = true)
- |    |-- Month: long (nullable = true)
- |    |-- Year: long (nullable = true)
- |-- DateCreated: struct (nullable = true)
- |    |-- Day: long (nullable = true)
- |    |-- Month: long (nullable = true)
- |    |-- Year: long (nullable = true)
- |-- DateRevised: struct (nullable = true)
- |    |-- Day: long (nullable = true)
- |    |-- Month: long (nullable = true)
- |    |-- Year: long (nullable = true)
- |-- GeneralNote: struct (nullable = true)
- |    |-- #VALUE: string (nullable = true)
- |    |-- @Owner: string (nullable = true)
- |-- InvestigatorList: struct (nullable = true)
- |    |-- Investigator: array (nullable = true)
- |    |    |-- element: struct (containsNull = true)
- |    |    |    |-- @ValidYN: string (nullable = true)
- |    |    |    |-- ForeName: string (nullable = true)
- |    |    |    |-- Initials: string (nullable = true)
- |    |    |    |-- LastName: string (nullable = true)
- |    |    |    |-- Suffix: string (nullable = true)
- |-- KeywordList: struct (nullable = true)
- |    |-- @Owner: string (nullable = true)
- |    |-- Keyword: array (nullable = true)
- |    |    |-- element: struct (containsNull = true)
- |    |    |    |-- #VALUE: string (nullable = true)
- |    |    |    |-- @MajorTopicYN: string (nullable = true)
- |-- MedlineJournalInfo: struct (nullable = true)
- |    |-- Country: string (nullable = true)
- |    |-- ISSNLinking: string (nullable = true)
- |    |-- MedlineTA: string (nullable = true)
- |    |-- NlmUniqueID: string (nullable = true)
- |-- MeshHeadingList: struct (nullable = true)
- |    |-- MeshHeading: array (nullable = true)
- |    |    |-- element: struct (containsNull = true)
- |    |    |    |-- DescriptorName: struct (nullable = true)
- |    |    |    |    |-- #VALUE: string (nullable = true)
- |    |    |    |    |-- @MajorTopicYN: string (nullable = true)
- |    |    |    |    |-- @Type: string (nullable = true)
- |    |    |    |    |-- @UI: string (nullable = true)
- |    |    |    |-- QualifierName: array (nullable = true)
- |    |    |    |    |-- element: struct (containsNull = true)
- |    |    |    |    |    |-- #VALUE: string (nullable = true)
- |    |    |    |    |    |-- @MajorTopicYN: string (nullable = true)
- |    |    |    |    |    |-- @UI: string (nullable = true)
- |-- OtherAbstract: array (nullable = true)
- |    |-- element: struct (containsNull = true)
- |    |    |-- @Language: string (nullable = true)
- |    |    |-- @Type: string (nullable = true)
- |    |    |-- AbstractText: string (nullable = true)
- |-- OtherID: array (nullable = true)
- |    |-- element: struct (containsNull = true)
- |    |    |-- #VALUE: string (nullable = true)
- |    |    |-- @Source: string (nullable = true)
- |-- PMID: struct (nullable = true)
- |    |-- #VALUE: long (nullable = true)
- |    |-- @Version: long (nullable = true)
- |-- PersonalNameSubjectList: struct (nullable = true)
- |    |-- PersonalNameSubject: array (nullable = true)
- |    |    |-- element: struct (containsNull = true)
- |    |    |    |-- ForeName: string (nullable = true)
- |    |    |    |-- Initials: string (nullable = true)
- |    |    |    |-- LastName: string (nullable = true)
- |-- SupplMeshList: struct (nullable = true)
- |    |-- SupplMeshName: array (nullable = true)
- |    |    |-- element: struct (containsNull = true)
- |    |    |    |-- #VALUE: string (nullable = true)
- |    |    |    |-- @Type: string (nullable = true)
- |    |    |    |-- @UI: string (nullable = true)
-'''
