@@ -22,8 +22,8 @@ from pyspark.sql import SQLContext
 
 logger = LoggingUtil.init_logging (__file__)
 
-class InAct (object):
-    ''' Tools for managing the inAct data base export '''
+class Intact (object):
+    ''' Tools for managing the intact data base export '''
     @staticmethod
     def parse_pmid (field):
         logger = LoggingUtil.init_logging (__file__)
@@ -52,7 +52,7 @@ class InAct (object):
     @staticmethod
     def map_As (inter, target):
         result = []
-        syns = InAct.get_As (inter, target)
+        syns = Intact.get_As (inter, target)
         for syn in syns:
             result.append ( ( syn, inter ) )
         return result
@@ -60,12 +60,12 @@ class InAct (object):
     def get_As (inter, target):
         result = []
         synonyms = inter.alt_B if inter.A == target else inter.alt_A
-        return InAct.parse_synonyms (synonyms, "|", result)
+        return Intact.parse_synonyms (synonyms, "|", result)
     @staticmethod
     def get_Bs (inter, target):
         result = []
         synonyms = inter.alt_B if inter.B == target else inter.alt_A
-        return InAct.parse_synonyms (synonyms, "|", result)
+        return Intact.parse_synonyms (synonyms, "|", result)
 
 class Ctext(object):
     ''' Chemotext core logic '''
@@ -152,17 +152,17 @@ class DataLake(object):
         return self.sc.parallelize (articles). \
             map (lambda a : SerUtil.read_article (a)). \
             cache ()
-    def load_inact (self):
-        logger.info ("Load inact db...")
+    def load_intact (self):
+        logger.info ("Load intact db...")
         sqlContext = SQLContext(self.sc)
         return sqlContext.read.                 \
             format('com.databricks.spark.csv'). \
             options(comment='#',                \
                     delimiter='\t').            \
-            load(self.conf.inact).rdd.          \
+            load(self.conf.intact).rdd.          \
             map (lambda r : P53Inter ( A = r.C0, B = r.C1, 
                                        alt_A = r.C4, alt_B = r.C5, 
-                                       pmid = InAct.parse_pmid(r.C8) ) ) . \
+                                       pmid = Intact.parse_pmid(r.C8) ) ) . \
             cache ()
     def load_pro_qinase (self):
         logger.info ("Load ProQinase Kinase synonym db...")
@@ -183,33 +183,69 @@ class DataLake(object):
             select (pmid_date["DateCreated"], pmid_date["PMID"]). \
             rdd. \
             map (lambda r : Medline.map_date (r))
-    def load_vocabulary (self):
-        logger.info ("Build A / B vocabulary from inact/pro_qinase/mesh...")
-        inact = self.load_inact ()
-        A = inact.flatMap (lambda inter : InAct.get_As (inter, 'uniprotkb:P04637')).distinct().cache ()
-        B = inact.flatMap (lambda inter : InAct.get_Bs (inter, 'uniprotkb:P04637')).distinct().cache ()
-        A = self.extend_A (A)
-        A = A.map (lambda a : a.lower ())
-        return Vocabulary (A, B, ref=inact)
-    def extend_A (self, A):
-        A = A.filter (lambda r : r.find ("kinase") > -1).distinct ()
-        logger.info ("Kinases from inAct: {0}".format (A.count ()))
+    def load_vocabulary (self, kin2prot):
+        logger.info ("Build A / B vocabulary from intact/pro_qinase/mesh...")
+        intact = self.load_intact ()
+        A = intact.flatMap (lambda inter : Intact.get_As (inter, 'uniprotkb:P04637')).distinct().cache ()
+        B = intact.flatMap (lambda inter : Intact.get_Bs (inter, 'uniprotkb:P04637')).distinct().cache ()
+        logger.info ("Kinases from intact: {0}".format (A.count ()))
 
+        buf = []
+        for p in kin2prot.collect ():
+            p0 = p[0].lower ()
+            if not p0 in buf:
+                buf.append (p0)
+            p1 = p[1].lower ()
+            if not p1 in buf:
+                buf.append (p1)
+        K = self.sc.parallelize (buf)
+        A = A.union (K)
+        logger.info ("Kinases after adding Kinase2Uniprot: {0}".format (A.count ()))
+
+        A = self.extend_A (A)
+
+        return Vocabulary (A, B, ref=intact)
+    def extend_A (self, A):
         A = A.union (self.load_pro_qinase ())
-        logger.info ("Kinases from inAct+ProQinase: {0}".format (A.count ()))
+        logger.info ("Kinases from intact+ProQinase: {0}".format (A.count ()))
 
         logger.info ("Add MeSH derived kinase terms to list of As...")
         skiplist = [ 'for', 'gene', 'complete', 'unsuitable', 'unambiguous', 'met', 'kit', 'name', 'yes',
-                     'fast', 'fused', None ]
+                     'fast', 'fused', 'top', 'cuts', 'fragment', 'kind', 'factor', None ]
         with open (self.conf.mesh_syn, "r") as stream:
             mesh = self.sc.parallelize (json.loads (stream.read ()))
-            A = A.union (mesh). \
-                filter (lambda a : a not in skiplist). \
-                distinct ()
             # TEST
             A = A.union (self.sc.parallelize ([ "protein kinase c inhibitor protein 1" ]) )
-            logger.info ("Total kinases from inAct/MeSH: {0}".format (A.count ()))
-        return A
+            logger.info ("Total kinases from intact/MeSH: {0}".format (A.count ()))
+
+        return A.union (mesh).                     \
+            map (lambda a : a.lower ()).           \
+            filter (lambda a : a not in skiplist). \
+            distinct ()
+        
+    def get_kin2prot (self):
+        kin2prot = None
+        with open (self.conf.kin2prot) as stream:
+            kin2prot_list = json.loads (stream.read ())
+            genes = []
+            proteins = []
+            for element in kin2prot_list:
+                if "Genes" in element:
+                    gene_map = element['Genes']
+                    for key in gene_map:
+                        syns = gene_map [key]
+                        for syn in syns:
+                            genes.append ( ( key, syn ) )
+                if "Proteins" in element:
+                    protein_map = element['Proteins']
+                    for key in protein_map:
+                        syns = protein_map [key]
+                        for syn in syns:
+                            proteins.append ( ( key, syn ) )
+            kin2prot = self.sc.parallelize (genes + proteins)
+            for k in kin2prot.collect ():
+                print k
+        return kin2prot
 
 class WordEmbed(object):
     def __init__(self, sc, conf, articles):
@@ -217,6 +253,10 @@ class WordEmbed(object):
         self.conf = conf
         if os.path.exists (conf.w2v_model):
             logger.info ("Load existing word2vec model: {0}".format (self.conf.w2v_model))
+            '''
+            https://issues.apache.org/jira/browse/SPARK-12016
+            
+            '''
             self.model = Word2VecModel.load (self.sc, self.conf.w2v_model)
         else:
             logger.info ("Compute word2vec word embedding model...")
@@ -250,20 +290,20 @@ class LitCrawl(object):
         return articles.flatMap (lambda a : Ctext.metalexer (a, broadcast_A, broadcast_B) ).cache ()
     @staticmethod
     def find_facts (vocabulary, binaries):
-        logger.info ("Join matches from full text with the inact database to find 'facts'.")
+        logger.info ("Join matches from full text with the intact database to find 'facts'.")
         binaries_map = binaries.map (lambda r : ( r.L, r) ) # ( A -> KinaseBinary.L )
-        inact_map = vocabulary.ref.flatMap (lambda inter : InAct.map_As(inter, 'uniprotkb:P04637') ) # ( A -> P53Inter )
-        return binaries_map.join (inact_map) # ( A -> ( KinaseBinary, P53Inter ) )    
+        intact_map = vocabulary.ref.flatMap (lambda inter : Intact.map_As(inter, 'uniprotkb:P04637') ) # ( A -> P53Inter )
+        return binaries_map.join (intact_map) # ( A -> ( KinaseBinary, P53Inter ) )    
     @staticmethod
     def find_before (pmid_date, facts):
         logger.info ("Join facts with the pmid->date map to find interactions noticed before published discovery.")
-        ref_pmid_to_binary = facts.map (lambda r : ( r[1][1].pmid, r[1][0] ) ) # ( inAct.REF[pmid] -> KinaseBinary )
+        ref_pmid_to_binary = facts.map (lambda r : ( r[1][1].pmid, r[1][0] ) ) # ( intact.REF[pmid] -> KinaseBinary )
         # TEST. Add reference pmids with late dates.
         pmid_date = pmid_date.union (ref_pmid_to_binary.map (lambda r : ( r[0], SerUtil.parse_date ("1-1-2300") )))
         before = ref_pmid_to_binary.                             \
                  join (pmid_date).                                    \
                  map (lambda r : r[1][0].copy (ref_date = r[1][1]) ). \
-                 filter (lambda k : k.date < k.ref_date).             \
+                 filter (lambda k : k.date and k.ref_date and k.date < k.ref_date).             \
                  distinct ()
         return before
 
@@ -271,8 +311,9 @@ def execute (conf, home):
     sc = SparkUtil.get_spark_context (conf.spark_conf)
 
     data_lake = DataLake (sc, conf.data_lake_conf)
+    kin2prot = data_lake.get_kin2prot ()
     articles = data_lake.load_articles ()
-    vocabulary = data_lake.load_vocabulary ()
+    vocabulary = data_lake.load_vocabulary (kin2prot)
     pmid_date = data_lake.load_pmid_date () # ( pmid -> date )
 
     binaries = LitCrawl.find_interactions (sc, vocabulary, articles)
@@ -295,10 +336,11 @@ def main ():
     parser.add_argument("--input",     help="Data root directory")
     parser.add_argument("--home",      help="App home")
     parser.add_argument("--venv",      help="Path to Python virtual environment to use")
-    parser.add_argument("--inact",     help="Path to inAct data")
+    parser.add_argument("--intact",    help="Path to intact data")
     parser.add_argument("--medline",   help="Path to Medline data")
     parser.add_argument("--mesh",      help="File containing JSON array of MeSH synonyms")
     parser.add_argument("--proqinase", help="Kinase synonyms from Pro Qinase")
+    parser.add_argument("--kin2prot",  help="Kinase name to uniprot id mapping")    
     parser.add_argument("--w2v",       help="Word embedding model file")
     args = parser.parse_args()
     conf = KinaseConf (spark_conf         = SparkConf (
@@ -307,10 +349,11 @@ def main ():
                            framework_name = args.name),
                        data_lake_conf     = DataLakeConf (
                            input_dir      = args.input,
-                           inact          = args.inact,
+                           intact         = args.intact,
                            medline        = args.medline, 
                            proqinase_syn  = args.proqinase,
-                           mesh_syn       = args.mesh ),
+                           mesh_syn       = args.mesh,
+                           kin2prot       = args.kin2prot),
                        w2v_model          = args.w2v)
     execute (conf, args.home)
 

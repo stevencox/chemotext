@@ -220,12 +220,13 @@ class Word2VecConf(Conf):
         self.mesh = mesh
 
 class DataLakeConf(object):
-    def __init__(self, input_dir, inact, medline, proqinase_syn, mesh_syn):
+    def __init__(self, input_dir, intact, medline, proqinase_syn, mesh_syn, kin2prot):
         self.input_dir = input_dir
-        self.inact = inact
+        self.intact = intact
         self.medline = medline
         self.proqinase_syn = proqinase_syn
         self.mesh_syn = mesh_syn
+        self.kin2prot = kin2prot
 
 class KinaseConf(Conf):
     def __init__(self, spark_conf, data_lake_conf, w2v_model):
