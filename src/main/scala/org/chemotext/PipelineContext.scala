@@ -404,11 +404,16 @@ object Processor {
       : RDD[Fact] =
   {
     getCSV (sc, fileName, sampleSize).map { row =>
+      val pmidString = row(pmids)
+      var pmidList = Array[String] ()
+      if (pmidString != null) {
+        pmidList = pmidString.split("\\|")
+      }
       Fact (
         L     = row (a),
         R     = row (b),
         code  = code,
-        PMIDs = row (pmids).split ("\\|")
+        PMIDs = pmidList //row (pmids).split ("\\|")
       )
     }
   }
