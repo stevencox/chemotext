@@ -90,6 +90,13 @@ class ArticleDecoder(json.JSONDecoder):
     def decode(self, text):
         obj = super(ArticleDecoder, self).decode(text)
 
+        paragraphs = []
+        for p in obj["paragraphs"]:
+            sentences = []
+            for sentence in p["sentences"]:
+                sentences.append (sentence)
+            paragraphs.append (Paragraph (sentences))
+
         word_pos = {}
         for k in [ 'A', 'B', 'C' ]:
             word_pos [k] = []
@@ -132,7 +139,7 @@ class ArticleDecoder(json.JSONDecoder):
             id         = obj['id'],
             generator  = obj['generator'],
             raw        = obj['raw'],
-            paragraphs = obj['paragraphs'],
+            paragraphs = paragraphs, #obj['paragraphs'],
             A          = word_pos ['A'],
             B          = word_pos ['B'],
             C          = word_pos ['C'],
@@ -186,7 +193,13 @@ class Conf(object):
         self.venv = venv
         self.framework_name = framework_name
         self.input_dir = input_dir
-    
+
+class SparkConf(Conf):
+    def __init__(self, host, venv, framework_name):
+        self.host = host
+        self.venv = venv
+        self.framework_name = framework_name
+
 class EvaluateConf(Conf):
     def __init__(self, host, venv, framework_name, input_dir, ctdAB, ctdBC, ctdAC):
         super(EvaluateConf, self).__init__(host, venv, framework_name, input_dir)
@@ -206,12 +219,20 @@ class Word2VecConf(Conf):
         super(Word2VecConf, self).__init__(host, venv, framework_name, input_dir)
         self.mesh = mesh
 
-class KinaseConf(Conf):
-    def __init__(self, host, venv, framework_name, input_dir, inact, medline, kinase_synonyms):
-        super(KinaseConf, self).__init__(host, venv, framework_name, input_dir)
-        self.inact = inact
+class DataLakeConf(object):
+    def __init__(self, input_dir, intact, medline, proqinase_syn, mesh_syn, kin2prot):
+        self.input_dir = input_dir
+        self.intact = intact
         self.medline = medline
-        self.kinase_synonyms = kinase_synonyms
+        self.proqinase_syn = proqinase_syn
+        self.mesh_syn = mesh_syn
+        self.kin2prot = kin2prot
+
+class KinaseConf(Conf):
+    def __init__(self, spark_conf, data_lake_conf, w2v_model):
+        self.spark_conf = spark_conf
+        self.data_lake_conf = data_lake_conf
+        self.w2v_model = w2v_model
 
 class KinaseMatch(object):
     def __init__(self, kinase, kloc, p53, ploc, pmid, date, file_name):
@@ -232,7 +253,7 @@ class ProQinaseSynonyms(object):
         result = [ self.name, self.hgnc_name ]
         if self.syn:
             for n in self.syn.split (";"):
-                result.append (n)
+                result.append (n.lower ())
         return result
 
 class P53Inter(object):
