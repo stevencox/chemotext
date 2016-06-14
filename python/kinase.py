@@ -176,9 +176,16 @@ class DataLake(object):
     def load_pmid_date (self):
         logger.info ("Load medline data to determine dates by pubmed ids")
         sqlContext = SQLContext (self.sc)
-        pmid_date = sqlContext.read.format ('com.databricks.spark.xml'). \
-        options(rowTag='MedlineCitation').load(self.conf.medline)
-        #sample (False, 0.02)
+
+        ''' Iterate over all Medline files adding them to the DataFrame '''
+        medline_pieces = glob.glob (os.path.join (self.conf.medline, "*.xml"))
+        pmid_date = None
+        for piece in medline_pieces:
+            piece_rdd = sqlContext.read.format ('com.databricks.spark.xml'). \
+                        options(rowTag='MedlineCitation').load(self.conf.medline)
+            pmid_date = pmid_date.unionAll (piece_rdd) if pmid_date else piece_rdd
+
+        ''' For all Medline records, map pubmed id to creation date '''
         return pmid_date.                                         \
             select (pmid_date["DateCreated"], pmid_date["PMID"]). \
             rdd.                                                  \
@@ -348,4 +355,5 @@ def main ():
                        w2v_model          = args.w2v)
     execute (conf, args.home)
 
-main ()
+if __name__ == "__main__":
+    main ()

@@ -102,6 +102,28 @@ def make_triples (mquant):
                 triples.append ( [ a, b, c ] )
     return triples
 
+class Medline(object):
+    def __init__(self, sc, medline_path):
+        self.sc = sc
+        self.path = medline_path
+    def load_pmid_date (self):
+        logger.info ("Load medline data to determine dates by pubmed ids")
+        sqlContext = SQLContext (self.sc)
+
+        ''' Iterate over all Medline files adding them to the DataFrame '''
+        medline_pieces = glob.glob (os.path.join (self.medline_path, "*.xml"))
+        pmid_date = None
+        for piece in medline_pieces:
+            piece_rdd = sqlContext.read.format ('com.databricks.spark.xml'). \
+                        options(rowTag='MedlineCitation').load(piece)
+            pmid_date = pmid_date.unionAll (piece_rdd) if pmid_date else piece_rdd
+
+        ''' For all Medline records, map pubmed id to creation date '''
+        return pmid_date.                                         \
+            select (pmid_date["DateCreated"], pmid_date["PMID"]). \
+            rdd.                                                  \
+            map (lambda r : Medline.map_date (r))
+
 def analyze_medline (conf):
     logger.info ("conf: {0}".format (conf))
     sc = SparkUtil.get_spark_context (conf)
@@ -140,5 +162,6 @@ def main ():
                         input_xml      = args.input)
     analyze_medline (conf)
 
-main ()
+if __name__ == "__main__":
+    main ()
 

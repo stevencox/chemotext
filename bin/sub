@@ -103,7 +103,7 @@ init () {
     MESHXML=$DATA_HOME/mesh/desc2016_2.xml
     TMCHEM_HOME=$DATA_HOME/tmchem
     VENV=$STARS_HOME/venv
-    MEDLINE_DATA=$DATA_HOME/pubmed/medline/medline16n0736.xml
+    MEDLINE_DATA=$DATA_HOME/pubmed/medline #/medline16n0736.xml
     CHEMLEX=tmchem #mesh
 }
 
