@@ -1,9 +1,21 @@
 import copy
 import datetime
+import glob
 import json
 import logging
+import re
 import os
 import socket
+from pyspark.sql import SQLContext
+
+class LoggingUtil(object):
+    @staticmethod
+    def init_logging (name):
+        FORMAT = '%(asctime)-15s %(filename)s %(funcName)s %(levelname)s: %(message)s'
+        logging.basicConfig(format=FORMAT, level=logging.INFO)
+        return logging.getLogger(name)
+
+logger = LoggingUtil.init_logging (__file__)
 
 class Vocabulary(object):
     def __init__(self, A, B, C=None, ref=None):
@@ -214,6 +226,43 @@ class MedlineConf(object):
         self.framework_name = framework_name
         self.input_xml = input_xml
 
+
+class Medline(object):
+    def __init__(self, sc, medline_path):
+        self.sc = sc
+        self.medline_path = medline_path
+
+    def load_pmid_date (self):
+        logger.info ("Load medline data to determine dates by pubmed ids")
+        sqlContext = SQLContext (self.sc)
+
+        ''' Iterate over all Medline files adding them to the DataFrame '''
+        medline_pieces = glob.glob (os.path.join (self.medline_path, "*.xml"))
+        pmid_date = None
+        for piece in medline_pieces:
+            piece_rdd = sqlContext.read.format ('com.databricks.spark.xml'). \
+                        options(rowTag='MedlineCitation').load (piece)
+            pmid_date = pmid_date.unionAll (piece_rdd) if pmid_date else piece_rdd
+
+        ''' For all Medline records, map pubmed id to creation date '''
+        return pmid_date.                                         \
+            select (pmid_date["DateCreated"], pmid_date["PMID"]). \
+            rdd.                                                  \
+            map (lambda r : Medline.map_date (r))
+
+    @staticmethod
+    def map_date (r):
+        day = 0
+        month = 0
+        year = 0
+        pmid = r["PMID"]["#VALUE"]
+        date = r ["DateCreated"]
+        if date:
+            day = date["Day"]
+            month = date["Month"]
+            year = date["Year"]
+        return ( pmid, SerializationUtil.parse_date ("{0}-{1}-{2}".format (day, month, year)) )
+
 class Word2VecConf(Conf):
     def __init__(self, host, venv, framework_name, input_dir, mesh):
         super(Word2VecConf, self).__init__(host, venv, framework_name, input_dir)
@@ -288,14 +337,6 @@ class SparkUtil(object):
                      .setAppName(conf.framework_name))
         return SparkContext(conf = sparkConf)
 
-class LoggingUtil(object):
-    @staticmethod
-    def init_logging (name):
-        FORMAT = '%(asctime)-15s %(filename)s %(funcName)s %(levelname)s: %(message)s'
-        logging.basicConfig(format=FORMAT, level=logging.INFO)
-        return logging.getLogger(name)
-
-
 class Cache(object):
     def __init__(self, root="."):
         self.path = os.path.join (root, "cache")
@@ -312,3 +353,150 @@ class Cache(object):
         obj_path = os.path.join (self.path, name)
         with open (obj_path, 'w') as stream:
             stream.write (json.dumps (obj, sort_keys=True, indent=2))
+
+class Intact (object):
+    ''' Tools for managing the intact data base export '''
+    @staticmethod
+    def parse_pmid (field):
+        logger = LoggingUtil.init_logging (__file__)
+        result = None
+        ids = field.split ("|")
+        for i in ids:
+            kv = i.split (":")
+            for k in kv:
+                if kv[0] == "pubmed":
+                    result = kv[1]
+                    break
+            if result:
+                break
+        return result
+    @staticmethod
+    def parse_synonyms (synonyms, separator, result):
+        logger = LoggingUtil.init_logging (__file__)
+        synonym_pat = re.compile (r".*:([\w ]+)\(.*\)$", re.IGNORECASE)
+        synonyms = synonyms.split (separator)
+        for opt in synonyms:
+            match = synonym_pat.search (opt)
+            if match:
+                text = match.group(1).lower ()
+                result.append (text)
+        return result
+    @staticmethod
+    def map_As (inter, target):
+        result = []
+        syns = Intact.get_As (inter, target)
+        for syn in syns:
+            result.append ( ( syn, inter ) )
+        return result
+    @staticmethod
+    def get_As (inter, target):
+        result = []
+        synonyms = inter.alt_B if inter.A == target else inter.alt_A
+        return Intact.parse_synonyms (synonyms, "|", result)
+    @staticmethod
+    def get_Bs (inter, target):
+        result = []
+        synonyms = inter.alt_B if inter.B == target else inter.alt_A
+        return Intact.parse_synonyms (synonyms, "|", result)
+
+
+class DataLake(object):
+    def __init__(self, sc, conf):
+        self.logger = LoggingUtil.init_logging ("DataLake")
+        self.sc = sc
+        self.conf = conf
+    ''' Tools for connecting to data sources '''
+    def load_articles (self):
+        self.logger.info ("Load PubMed Central preprocessed to JSON as an RDD of article objects")
+        articles = glob.glob (os.path.join (self.conf.input_dir, "*fxml.json"))
+        return self.sc.parallelize (articles).         \
+            map (lambda a : SerializationUtil.read_article (a)). \
+            cache ()
+
+    def load_intact (self):
+        self.logger.info ("Load intact db...")
+        sqlContext = SQLContext(self.sc)
+        return sqlContext.read.                 \
+            format('com.databricks.spark.csv'). \
+            options(comment='#',                \
+                    delimiter='\t').            \
+            load(self.conf.intact).rdd.         \
+            map (lambda r : P53Inter ( A = r.C0, B = r.C1, 
+                                       alt_A = r.C4, alt_B = r.C5, 
+                                       pmid = Intact.parse_pmid(r.C8) ) ) . \
+            cache ()
+    def load_pro_qinase (self):
+        self.logger.info ("Load ProQinase Kinase synonym db...")
+        sqlContext = SQLContext(self.sc)
+        return sqlContext.read.                 \
+            format('com.databricks.spark.csv'). \
+            options (delimiter=' ').            \
+            load (self.conf.proqinase_syn).rdd. \
+            flatMap (lambda r : ProQinaseSynonyms (r.C1, r.C2, r.C3).get_names ()). \
+            cache ()
+
+    def load_pmid_date (self):
+        medline = Medline (self.sc, self.conf.medline)
+        return medline.load_pmid_date ()
+
+    def load_vocabulary (self, kin2prot):
+        self.logger.info ("Build A / B vocabulary from intact/pro_qinase/mesh...")
+        intact = self.load_intact ()
+        A = intact.flatMap (lambda inter : Intact.get_As (inter, 'uniprotkb:P04637')).distinct().cache ()
+        B = intact.flatMap (lambda inter : Intact.get_Bs (inter, 'uniprotkb:P04637')).distinct().cache ()
+        self.logger.info ("Kinases from intact: {0}".format (A.count ()))
+
+        buf = []
+        for p in kin2prot.collect ():
+            p0 = p[0].lower ()
+            if not p0 in buf:
+                buf.append (p0)
+            p1 = p[1].lower ()
+            if not p1 in buf:
+                buf.append (p1)
+        K = self.sc.parallelize (buf)
+        A = A.union (K)
+        logger.info ("Kinases after adding Kinase2Uniprot: {0}".format (A.count ()))
+
+        A = self.extend_A (A)
+
+        return Vocabulary (A, B, ref=intact)
+    def extend_A (self, A):
+        A = A.union (self.load_pro_qinase ())
+        self.logger.info ("Kinases from intact+ProQinase: {0}".format (A.count ()))
+        skiplist = [ 'for', 'gene', 'complete', 'unsuitable', 'unambiguous', 'met', 'kit', 'name', 'yes',
+                     'fast', 'fused', 'top', 'cuts', 'fragment', 'kind', 'factor', 'p53', None ]
+        with open (self.conf.mesh_syn, "r") as stream:
+            mesh = self.sc.parallelize (json.loads (stream.read ()))
+            # TEST
+            A = A.union (self.sc.parallelize ([ "protein kinase c inhibitor protein 1" ]) )
+            self.logger.info ("Total kinases from intact/MeSH: {0}".format (A.count ()))
+
+        return A.union (mesh).                     \
+            map (lambda a : a.lower ()).           \
+            filter (lambda a : a not in skiplist). \
+            distinct ()
+        
+    def get_kin2prot (self):
+        kin2prot = None
+        with open (self.conf.kin2prot) as stream:
+            kin2prot_list = json.loads (stream.read ())
+            genes = []
+            proteins = []
+            for element in kin2prot_list:
+                if "Genes" in element:
+                    gene_map = element['Genes']
+                    for key in gene_map:
+                        syns = gene_map [key]
+                        for syn in syns:
+                            genes.append ( ( key, syn ) )
+                if "Proteins" in element:
+                    protein_map = element['Proteins']
+                    for key in protein_map:
+                        syns = protein_map [key]
+                        for syn in syns:
+                            proteins.append ( ( key, syn ) )
+            kin2prot = self.sc.parallelize (genes + proteins)
+            for k in kin2prot.collect ():
+                print k
+        return kin2prot

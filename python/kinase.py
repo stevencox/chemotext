@@ -5,11 +5,11 @@ import os
 import re
 import string
 import traceback
+from chemotext_util import DataLake
 from chemotext_util import DataLakeConf
+from chemotext_util import Intact
 from chemotext_util import KinaseConf
 from chemotext_util import KinaseBinary
-from chemotext_util import ProQinaseSynonyms
-from chemotext_util import P53Inter
 from chemotext_util import SerializationUtil as SerUtil
 from chemotext_util import SparkConf
 from chemotext_util import SparkUtil
@@ -21,51 +21,6 @@ from pyspark.mllib.feature import Word2VecModel
 from pyspark.sql import SQLContext
 
 logger = LoggingUtil.init_logging (__file__)
-
-class Intact (object):
-    ''' Tools for managing the intact data base export '''
-    @staticmethod
-    def parse_pmid (field):
-        logger = LoggingUtil.init_logging (__file__)
-        result = None
-        ids = field.split ("|")
-        for i in ids:
-            kv = i.split (":")
-            for k in kv:
-                if kv[0] == "pubmed":
-                    result = kv[1]
-                    break
-            if result:
-                break
-        return result
-    @staticmethod
-    def parse_synonyms (synonyms, separator, result):
-        logger = LoggingUtil.init_logging (__file__)
-        synonym_pat = re.compile (r".*:([\w ]+)\(.*\)$", re.IGNORECASE)
-        synonyms = synonyms.split (separator)
-        for opt in synonyms:
-            match = synonym_pat.search (opt)
-            if match:
-                text = match.group(1).lower ()
-                result.append (text)
-        return result
-    @staticmethod
-    def map_As (inter, target):
-        result = []
-        syns = Intact.get_As (inter, target)
-        for syn in syns:
-            result.append ( ( syn, inter ) )
-        return result
-    @staticmethod
-    def get_As (inter, target):
-        result = []
-        synonyms = inter.alt_B if inter.A == target else inter.alt_A
-        return Intact.parse_synonyms (synonyms, "|", result)
-    @staticmethod
-    def get_Bs (inter, target):
-        result = []
-        synonyms = inter.alt_B if inter.B == target else inter.alt_A
-        return Intact.parse_synonyms (synonyms, "|", result)
 
 class Ctext(object):
     ''' Chemotext core logic '''
@@ -126,131 +81,6 @@ class Ctext(object):
                     logger.info ("Binary: {0}".format (binary))
                     result.append (binary)
         return result
-
-class Medline(object):
-    @staticmethod
-    def map_date (r):
-        day = 0
-        month = 0
-        year = 0
-        pmid = r["PMID"]["#VALUE"]
-        date = r ["DateCreated"]
-        if date:
-            day = date["Day"]
-            month = date["Month"]
-            year = date["Year"]
-        return ( pmid, SerUtil.parse_date ("{0}-{1}-{2}".format (day, month, year)) )
-
-class DataLake(object):
-    def __init__(self, sc, conf):
-        self.sc = sc
-        self.conf = conf
-    ''' Tools for connecting to data sources '''
-    def load_articles (self):
-        logger.info ("Load PubMed Central preprocessed to JSON as an RDD of article objects")
-        articles = glob.glob (os.path.join (self.conf.input_dir, "*fxml.json"))
-        return self.sc.parallelize (articles).         \
-            map (lambda a : SerUtil.read_article (a)). \
-            cache ()
-    def load_intact (self):
-        logger.info ("Load intact db...")
-        sqlContext = SQLContext(self.sc)
-        return sqlContext.read.                 \
-            format('com.databricks.spark.csv'). \
-            options(comment='#',                \
-                    delimiter='\t').            \
-            load(self.conf.intact).rdd.         \
-            map (lambda r : P53Inter ( A = r.C0, B = r.C1, 
-                                       alt_A = r.C4, alt_B = r.C5, 
-                                       pmid = Intact.parse_pmid(r.C8) ) ) . \
-            cache ()
-    def load_pro_qinase (self):
-        logger.info ("Load ProQinase Kinase synonym db...")
-        sqlContext = SQLContext(self.sc)
-        return sqlContext.read.                 \
-            format('com.databricks.spark.csv'). \
-            options (delimiter=' ').            \
-            load (self.conf.proqinase_syn).rdd. \
-            flatMap (lambda r : ProQinaseSynonyms (r.C1, r.C2, r.C3).get_names ()). \
-            cache ()
-    def load_pmid_date (self):
-        logger.info ("Load medline data to determine dates by pubmed ids")
-        sqlContext = SQLContext (self.sc)
-
-        ''' Iterate over all Medline files adding them to the DataFrame '''
-        medline_pieces = glob.glob (os.path.join (self.conf.medline, "*.xml"))
-        pmid_date = None
-        for piece in medline_pieces:
-            piece_rdd = sqlContext.read.format ('com.databricks.spark.xml'). \
-                        options(rowTag='MedlineCitation').load(self.conf.medline)
-            pmid_date = pmid_date.unionAll (piece_rdd) if pmid_date else piece_rdd
-
-        ''' For all Medline records, map pubmed id to creation date '''
-        return pmid_date.                                         \
-            select (pmid_date["DateCreated"], pmid_date["PMID"]). \
-            rdd.                                                  \
-            map (lambda r : Medline.map_date (r))
-    def load_vocabulary (self, kin2prot):
-        logger.info ("Build A / B vocabulary from intact/pro_qinase/mesh...")
-        intact = self.load_intact ()
-        A = intact.flatMap (lambda inter : Intact.get_As (inter, 'uniprotkb:P04637')).distinct().cache ()
-        B = intact.flatMap (lambda inter : Intact.get_Bs (inter, 'uniprotkb:P04637')).distinct().cache ()
-        logger.info ("Kinases from intact: {0}".format (A.count ()))
-
-        buf = []
-        for p in kin2prot.collect ():
-            p0 = p[0].lower ()
-            if not p0 in buf:
-                buf.append (p0)
-            p1 = p[1].lower ()
-            if not p1 in buf:
-                buf.append (p1)
-        K = self.sc.parallelize (buf)
-        A = A.union (K)
-        logger.info ("Kinases after adding Kinase2Uniprot: {0}".format (A.count ()))
-
-        A = self.extend_A (A)
-
-        return Vocabulary (A, B, ref=intact)
-    def extend_A (self, A):
-        A = A.union (self.load_pro_qinase ())
-        logger.info ("Kinases from intact+ProQinase: {0}".format (A.count ()))
-        skiplist = [ 'for', 'gene', 'complete', 'unsuitable', 'unambiguous', 'met', 'kit', 'name', 'yes',
-                     'fast', 'fused', 'top', 'cuts', 'fragment', 'kind', 'factor', 'p53', None ]
-        with open (self.conf.mesh_syn, "r") as stream:
-            mesh = self.sc.parallelize (json.loads (stream.read ()))
-            # TEST
-            A = A.union (self.sc.parallelize ([ "protein kinase c inhibitor protein 1" ]) )
-            logger.info ("Total kinases from intact/MeSH: {0}".format (A.count ()))
-
-        return A.union (mesh).                     \
-            map (lambda a : a.lower ()).           \
-            filter (lambda a : a not in skiplist). \
-            distinct ()
-        
-    def get_kin2prot (self):
-        kin2prot = None
-        with open (self.conf.kin2prot) as stream:
-            kin2prot_list = json.loads (stream.read ())
-            genes = []
-            proteins = []
-            for element in kin2prot_list:
-                if "Genes" in element:
-                    gene_map = element['Genes']
-                    for key in gene_map:
-                        syns = gene_map [key]
-                        for syn in syns:
-                            genes.append ( ( key, syn ) )
-                if "Proteins" in element:
-                    protein_map = element['Proteins']
-                    for key in protein_map:
-                        syns = protein_map [key]
-                        for syn in syns:
-                            proteins.append ( ( key, syn ) )
-            kin2prot = self.sc.parallelize (genes + proteins)
-            for k in kin2prot.collect ():
-                print k
-        return kin2prot
 
 class WordEmbed(object):
     def __init__(self, sc, conf, articles):

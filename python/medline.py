@@ -15,11 +15,12 @@ try:
 except ImportError:
     import xml.etree.cElementTree as et
 from chemotext_util import Article
-from chemotext_util import MedlineConf
 from chemotext_util import LoggingUtil
+from chemotext_util import Medline
+from chemotext_util import MedlineConf
+from chemotext_util import MedlineQuant
 from chemotext_util import SerializationUtil as SUtil
 from chemotext_util import SparkUtil
-from chemotext_util import MedlineQuant
 from pyspark.sql import SQLContext
 
 logger = LoggingUtil.init_logging (__file__)
@@ -101,28 +102,6 @@ def make_triples (mquant):
             for c in mquant.C:
                 triples.append ( [ a, b, c ] )
     return triples
-
-class Medline(object):
-    def __init__(self, sc, medline_path):
-        self.sc = sc
-        self.path = medline_path
-    def load_pmid_date (self):
-        logger.info ("Load medline data to determine dates by pubmed ids")
-        sqlContext = SQLContext (self.sc)
-
-        ''' Iterate over all Medline files adding them to the DataFrame '''
-        medline_pieces = glob.glob (os.path.join (self.medline_path, "*.xml"))
-        pmid_date = None
-        for piece in medline_pieces:
-            piece_rdd = sqlContext.read.format ('com.databricks.spark.xml'). \
-                        options(rowTag='MedlineCitation').load(piece)
-            pmid_date = pmid_date.unionAll (piece_rdd) if pmid_date else piece_rdd
-
-        ''' For all Medline records, map pubmed id to creation date '''
-        return pmid_date.                                         \
-            select (pmid_date["DateCreated"], pmid_date["PMID"]). \
-            rdd.                                                  \
-            map (lambda r : Medline.map_date (r))
 
 def analyze_medline (conf):
     logger.info ("conf: {0}".format (conf))
