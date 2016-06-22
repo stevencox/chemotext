@@ -576,6 +576,7 @@ object Processor {
       Processor.findTriples (article, outputPath)
     }
 
+    /*
     val map = new HashMap[String, String] ()
     articles.map { article =>
       (article.id, article.date)
@@ -586,6 +587,7 @@ object Processor {
     val pmidToDate = PMIDToDate (scala.collection.immutable.HashMap () ++ map)
 
     JSONUtils.writeJSON (pmidToDate, outputPath + File.separator + "pmid_date.json")
+     */
 
     /** test we can read the json we just wrote.
     val json = JSONUtils.readJSON (outputPath + File.separator + "pmid_date.json")
