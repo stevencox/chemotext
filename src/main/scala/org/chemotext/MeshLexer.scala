@@ -7,10 +7,10 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import scala.util.control.Breaks._
 
-class MeshLexer (meshXML : String) extends Lexer {
+class MeshLexer (dataHome : String, meshXML : String) extends Lexer {
 
   val logger = LoggerFactory.getLogger (getClass.getName) //"MeSHLexer")
-  val vocab = VocabFactory.getVocabulary (meshXML)
+  val vocab = VocabFactory.getVocabulary (dataHome, meshXML)
 
   var words : List[String] = null
 
@@ -87,8 +87,8 @@ class MeshLexer (meshXML : String) extends Lexer {
   }
 }
 
-class AMeshLexer (meshXML : String) extends MeshLexer (meshXML) { words = vocab.A }
+class AMeshLexer (dataHome : String, meshXML : String) extends MeshLexer (dataHome, meshXML) { words = vocab.A }
 
-class BMeshLexer (meshXML : String) extends MeshLexer (meshXML) { words = vocab.B }
+class BMeshLexer (dataHome : String, meshXML : String) extends MeshLexer (dataHome, meshXML) { words = vocab.B }
 
-class CMeshLexer (meshXML : String) extends MeshLexer (meshXML) { words = vocab.C }
+class CMeshLexer (dataHome : String, meshXML : String) extends MeshLexer (dataHome, meshXML) { words = vocab.C }

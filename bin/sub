@@ -179,7 +179,7 @@ execute_ct2 () {
 	--class "org.chemotext.PipelineApp" \
 	$( find $APP_HOME -name "*assembly*.jar" -print | grep scala ) \
 	--name "Chemotext2:ProcessRawArticle" \
-	--home $APP_HOME \
+	--dataHome $DATA_HOME \
 	--articles $PUBMEDC \
 	--mesh $MESHXML \
 	--chemlex $CHEMLEX \
@@ -188,9 +188,10 @@ execute_ct2 () {
 	--ctdAB $CTDABPATH \
 	--ctdBC $CTDBCPATH \
 	--output $OUTPUTPATH \
+        --slices 10000 \
 	--lexerConfig $LEXER_CONFIGPATH \
 	--lexerCache $LEXER_CACHEFILE \
-	--lexerDict $LEXER_DICTIONARY
+	--lexerDict $LEXER_DICTIONARY 
 }
 
 execute_ct1 () {

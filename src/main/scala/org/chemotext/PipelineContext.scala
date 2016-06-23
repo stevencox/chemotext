@@ -109,7 +109,7 @@ object Processor {
 
   val logger = LoggerFactory.getLogger("Chemotext2")
 
-  val jython = new JythonInterpreter ()
+  //val jython = new JythonInterpreter ()
 
   case class Triple (
     A : String,
@@ -150,7 +150,8 @@ object Processor {
     article   : String,
     meshXML   : String,
     chemlex   : String,
-    lexerConf : TmChemLexerConf
+    lexerConf : TmChemLexerConf,
+    dataHome  : String
   )
 
   /**
@@ -211,8 +212,23 @@ object Processor {
       logger.debug (s"Creating directory $outputPath")
       outputDir.mkdirs ()
     }
-    JSONUtils.writeJSON (quantified, outputPath + File.separator + quantified.fileName + ".json")
+    JSONUtils.writeJSON (quantified, formArticleDigestFileName (outputPath, quantified.fileName))
     quantified
+  }
+
+  def formArticleDigestPath (outputPath : String, articleName : String) = {
+    if (articleName != null) {
+      var basename = articleName
+      if (articleName.indexOf (File.separator) > -1) {
+        basename = articleName.replaceAll (".*" + File.separator, "")
+      }
+      Paths.get (outputPath, basename + ".json")
+    } else {
+      null
+    }
+  }
+  def formArticleDigestFileName (outputPath : String, articleName : String) = {
+    formArticleDigestPath(outputPath, articleName).toFile().getCanonicalPath ()
   }
 
   /**
@@ -266,7 +282,7 @@ object Processor {
     var A : List[WordFeature] = List ()
     var B : List[WordFeature] = List ()
     var C : List[WordFeature] = List ()
-    val vocab = VocabFactory.getVocabulary (config.meshXML)
+    val vocab = VocabFactory.getVocabulary (config.dataHome, config.meshXML)
     logger.debug (s"""Sample vocab:
          A-> ${vocab.A.slice (1, 10)}...
          B-> ${vocab.B.slice (1, 10)}...
@@ -278,13 +294,11 @@ object Processor {
     var date : String = null
     var id   : String = null
     try {
-      //val A_lexer = new AMeshLexer (config.meshXML)
-      //val A_lexer = TmChemLexer.getInstance (config.lexerConf)
       val A_lexer = 
-        if (config.chemlex == "mesh") new AMeshLexer (config.meshXML)
+        if (config.chemlex == "mesh") new AMeshLexer (config.dataHome, config.meshXML)
         else TmChemLexer.getInstance (config.lexerConf)
-      val B_lexer = new BMeshLexer (config.meshXML)
-      val C_lexer = new CMeshLexer (config.meshXML)
+      val B_lexer = new BMeshLexer (config.dataHome, config.meshXML)
+      val C_lexer = new CMeshLexer (config.dataHome, config.meshXML)
       val parser = new PubMedArticleParser (config.article)
       id = parser.getId ()
       date = parser.getDate ()
@@ -477,13 +491,14 @@ object Processor {
   }
 
   def extendVocabulary (
-    AB      : RDD[Fact],
-    BC      : RDD[Fact],
-    AC      : RDD[Fact],
-    meshXML : String
+    AB       : RDD[Fact],
+    BC       : RDD[Fact],
+    AC       : RDD[Fact],
+    dataHome : String,
+    meshXML  : String
   ) = {
     logger.info ("Checking vocabulary...")
-    var vocab = VocabFactory.getVocabulary (meshXML)
+    var vocab = VocabFactory.getVocabulary (dataHome, meshXML)
     if (! vocab.extended) {
 
       logger.info ("Extending basic (MeSH) vocabulary with terms from CTD...")
@@ -506,7 +521,7 @@ object Processor {
         extended = true)
 
       // Cache the extended vocabulary.
-      VocabFactory.writeJSON (vocab)
+      VocabFactory.writeJSON (dataHome, vocab)
     }
     vocab
   }
@@ -693,6 +708,7 @@ object Processor {
    */
   def generatePairs (
     articlePaths : RDD[String],
+    dataHome     : String,
     meshXML      : String,
     sampleSize   : Double,
     chemlex      : String,
@@ -706,12 +722,14 @@ object Processor {
         article   = article._1,
         meshXML   = article._2,
         chemlex   = chemlex,
-        lexerConf = lexerConf))
+        lexerConf = lexerConf,
+        dataHome  = dataHome))
     }.cache ()
   }
 
   def executeChemotextPipeline (
     articlePaths : RDD[String],
+    dataHome     : String,
     meshXML      : String,
     chemlex      : String,
     lexerConf    : TmChemLexerConf,
@@ -721,12 +739,9 @@ object Processor {
     sampleSize   : Double,
     outputPath   : String) =
   {
-    val vocab = extendVocabulary (AB, BC, AC, meshXML)
-    logger.debug (s"article path count: ${articlePaths.count}")
-    articlePaths.collect.foreach { a =>
-      logger.debug (s"--> $a")
-    }
-    val articles = generatePairs (articlePaths, meshXML, sampleSize, chemlex, lexerConf)
+    val vocab = extendVocabulary (AB, BC, AC, dataHome, meshXML)
+    logger.debug (s"** Article path count: ${articlePaths.count}")
+    val articles = generatePairs (articlePaths, dataHome, meshXML, sampleSize, chemlex, lexerConf)
     val annotatedArticles = annotateBinaries (articles, AB, BC, AC)
     calculateTriples (annotatedArticles, outputPath)
   }
@@ -738,17 +753,17 @@ object Processor {
  */
 class PipelineContext (
   sparkContext    : SparkContext,
-  appHome         : String = "../data/pubmed",
-  meshXML         : String = "../data/pubmed/mesh/desc2016.xml",
-  chemlex         : String = "mesh",
+  dataHome        : String,
+  meshXML         : String,
+  chemlex         : String,
   lexerConf       : TmChemLexerConf,
-  articleRootPath : String = "../data/pubmed/articles",
-  ctdACPath       : String = "../data/pubmed/ctd/CTD_chemicals_diseases.csv",
-  ctdABPath       : String = "../data/pubmed/ctd/CTD_chem_gene_ixns.csv",
-  ctdBCPath       : String = "../data/pubmed/ctd/CTD_genes_diseases.csv",
-  sampleSize      : Double = 0.01,  
-  outputPath      : String = "output"
-)
+  articleRootPath : String,
+  ctdACPath       : String,
+  ctdABPath       : String,
+  ctdBCPath       : String,
+  sampleSize      : Double,
+  outputPath      : String,
+  slices          : Int)
 {
   val logger = LoggerFactory.getLogger ("PipelineContext")
 
@@ -761,12 +776,13 @@ class PipelineContext (
   def getFileList (articleRootDir : File, articleRegex : Regex) : Array[String] = {
     var fileList : Array[String] = null
     val fileListPath = "filelist.json"
-
     val json = JSONUtils.readJSON (fileListPath)
     if (json != null) {
+      logger.info (s"Loaded existing file list from: $fileListPath")
       implicit val formats = DefaultFormats
       json.extract[Array[String]]
     } else {
+      logger.info (s"Generating file list...")
       fileList = recursiveListFiles (articleRootDir, articleRegex).map (_.getCanonicalPath)
       JSONUtils.writeJSON (fileList, fileListPath)
       fileList
@@ -777,6 +793,19 @@ class PipelineContext (
     val articleRootDir = new File (articleRootPath)
     val articleRegex = new Regex (".*.fxml")
     val articleList = getFileList (articleRootDir, articleRegex)
+    val sliceBuffer = ListBuffer[ArrayBuffer[String]] ()
+    if (slices == 1) {
+      logger.info (s"Slice (one slice) ${articleList.size} files.")
+      sliceBuffer += articleList.to[ArrayBuffer]
+    } else {
+      val sliceSize = articleList.size / slices
+      for (sliceId <- 0 to slices - 1) {
+        val start = sliceSize * sliceId
+        val articleListSlice = articleList.slice (start, start + sliceSize)
+        sliceBuffer += articleListSlice.to[ArrayBuffer]
+        logger.info (s"Slice ${sliceId} processing ${articleListSlice.size} files.")
+      }
+    }
 
     val corpusPath = "pmc_corpus.txt"
     val vectorModelPath = "pmc_w2v.model"
@@ -786,17 +815,39 @@ class PipelineContext (
     val BC = Processor.getFacts (sparkContext, ctdBCPath, ctdSampleSize, a = 0, b = 2, code = 2, pmids = 8)
     val AC = Processor.getFacts (sparkContext, ctdACPath, ctdSampleSize, a = 0, b = 3, code = 3, pmids = 9)
 
-    Processor.executeChemotextPipeline (
-      articlePaths   = sparkContext.parallelize (articleList),
-      meshXML        = meshXML,
-      chemlex        = chemlex,
-      lexerConf      = lexerConf,
-      AB             = AB,
-      BC             = BC,
-      AC             = AC,
-      sampleSize     = sampleSize,
-      outputPath     = outputPath)
+    for ( articleListSlice <- sliceBuffer.toList ) {
+
+      logger.info (s"Scanning for already processed files.")
+      for (article <- articleListSlice) {
+        if (article == null) {
+          articleListSlice -= article
+        } else {
+          val outputFilePath = Processor.formArticleDigestPath (outputPath, article)
+          val exists = Files.exists (outputFilePath)
+          logger.info (s"-------......>>> Output File Exists?: $article: $exists")
+          if (Files.exists (outputFilePath)) {
+            logger.info (s"--------------------------> Skipping already processed file: $article")
+            articleListSlice -= article
+          }
+        }
+      }
+
+      logger.info (s"----------------------> Processing slice of ${articleListSlice.size} files")
+      Processor.executeChemotextPipeline (
+        articlePaths   = sparkContext.parallelize (articleListSlice),
+        dataHome       = dataHome,
+        meshXML        = meshXML,
+        chemlex        = chemlex,
+        lexerConf      = lexerConf,
+        AB             = AB,
+        BC             = BC,
+        AC             = AC,
+        sampleSize     = sampleSize,
+        outputPath     = outputPath)
+    }
   }
+
+
 }
 
 object PipelineApp {
@@ -815,7 +866,7 @@ object PipelineApp {
       .footer("\n(c) UNC-CH / RENCI")
 
       .opt[String]("name",     descr = "Name of the application.")
-      .opt[String]("home",     descr = "Application home directory")
+      .opt[String]("dataHome", descr = "System root data directory")
       .opt[String]("articles", descr = "Root directory of articles to analyze")
       .opt[String]("mesh",     descr = "Path to MeSH XML definition file")
       .opt[String]("chemlex", descr = "Chemical lexer to use (mesh|tmchem)")
@@ -824,12 +875,13 @@ object PipelineApp {
       .opt[String]("ctdAB",    descr = "Path to CTD AB data file")
       .opt[String]("ctdBC",    descr = "Path to CTD BC data file")
       .opt[String]("output",   descr = "Output directory for process output")
+      .opt[Int]   ("slices",  descr = "Total number of slices of article data")
       .opt[String]("lexerConfig", descr = "Lexical analyzer configuration path (tmChem)")
       .opt[String]("lexerCache",  descr = "Lexical analyzer cache file path (tmChem)")
       .opt[String]("lexerDict",   descr = "Lexical analyzer dictionary path (tmChem)")
 
     val appName = opts[String]("name")
-    val appHome = opts[String]("home")
+    val dataHome = opts[String]("dataHome")
     val articleRootPath = opts[String]("articles")
     val meshXML = opts[String]("mesh")
     val chemlex = opts[String]("chemlex")
@@ -838,12 +890,13 @@ object PipelineApp {
     val ctdABPath = opts[String]("ctdAB")
     val ctdBCPath = opts[String]("ctdBC")
     val outputPath = opts[String]("output")
+    val slices = opts[Int]("slices")
     val lexerConfigPath = opts[String]("lexerConfig")
     val lexerCacheFile = opts[String]("lexerCache")
     val lexerDictPath = opts[String]("lexerDict")
 
     logger.info (s"appName        : $appName")
-    logger.info (s"appHome        : $appHome")
+    logger.info (s"dataHome       : $dataHome")
     logger.info (s"articleRootPath: $articleRootPath")
     logger.info (s"meshXML        : $meshXML")
     logger.info (s"chemlex        : $chemlex")
@@ -852,7 +905,7 @@ object PipelineApp {
     logger.info (s"ctdABPath      : $ctdABPath")
     logger.info (s"ctdBCPath      : $ctdBCPath")
     logger.info (s"outputPath     : $outputPath")
-
+    logger.info (s"slices         : $slices")
     logger.info (s"lexerConfigPath    : $lexerConfigPath")
     logger.info (s"lexerCacheFile     : $lexerCacheFile")
     logger.info (s"lexerDictPath      : $lexerDictPath")
@@ -861,7 +914,7 @@ object PipelineApp {
     val sc = new SparkContext(conf)
     val pipeline = new PipelineContext (
       sparkContext = sc,
-      appHome      = appHome,
+      dataHome     = dataHome,
       meshXML      = meshXML,
       chemlex      = chemlex,
       lexerConf    = TmChemLexerConf (
@@ -874,7 +927,8 @@ object PipelineApp {
       ctdABPath = ctdABPath,
       ctdBCPath = ctdBCPath,
       sampleSize = sampleSize.toDouble,
-      outputPath = outputPath)
+      outputPath = outputPath,
+      slices     = slices)
 
     pipeline.execute ()    
   }
