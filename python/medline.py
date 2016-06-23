@@ -106,6 +106,14 @@ def make_triples (mquant):
 def analyze_medline (conf):
     logger.info ("conf: {0}".format (conf))
     sc = SparkUtil.get_spark_context (conf)
+    medline_conn = Medline (sc, conf.input_xml, use_mem_cache=True)
+
+    start = time.time()
+    pmid_df = medline_conn.load_pmid_date ()
+    elapsed = time.time() - start
+    print ("TIME: ------------> {0}".format (elapsed))
+
+    '''
     sqlContext = SQLContext (sc)
     medline = sqlContext.read. \
         format ('com.databricks.spark.xml'). \
@@ -127,12 +135,14 @@ def analyze_medline (conf):
         if len(triples) > 0:
             logger.info ("MeSH Terms: [pmid={0}/date={1}] {2}".format (
                 mquant.pmid, mquant.date, triples))
+    '''
+
 
 def main ():
     parser = argparse.ArgumentParser()
     parser.add_argument("--host",  help="Mesos master host")
     parser.add_argument("--name",  help="Spark framework name")
-    parser.add_argument("--input", help="Medline XML.")
+    parser.add_argument("--input", help="Medline XML.")    
     parser.add_argument("--venv",  help="Path to Python virtual environment to use")
     args = parser.parse_args()
     conf = MedlineConf (host           = args.host,
