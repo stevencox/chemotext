@@ -5,6 +5,7 @@ import glob
 import json
 import os
 import logging
+import math
 import sys
 import socket
 import time
@@ -135,6 +136,27 @@ def evaluate (conf):
         logger.info ("precision: {0}, recall: {1}".format (precision, recall))
     else:
         logger.info ("precision/recall can't be calculated. true_positives: {0}".format (true_positives))
+
+def evaluate_2 (conf):
+    '''
+    - Generate AS(j,)       // all reference assertions 
+    - Generate AC(j,)       // all found assertions
+    - Generate parameter sets {TCi} for TC
+    -      For each TCi in TC
+    -          Collapse AC(j,) to generate EAC(j,) (See 1.2)
+    -          Compute evaluation metrics            (See 1.3)
+    - Generate a single plot of P,R,F across all TCi
+    - Generate a single plot of NAC,NAS,MNAC, MNAS, SDNAC, SDNASacross all TCi
+    '''
+    AS_j = generate_reference_assertions ()
+    AC_j = generate_detected_assertions ()
+    parameter_sets = []
+    for parameter_set in parameter_sets:
+        EACi_j = calculate_canonical_assertions_and_strengths (parameter_set)
+
+    # Tsda*e^(-Tsdf*(sd-1)) +Tpda*e^(-Tpdf*(pd-1))+Twda*e^(-Twdf*(wd-1))
+    strength = arg * math.exp ( -Tsdf * (sd - 1) )
+
 
 def main ():
     '''

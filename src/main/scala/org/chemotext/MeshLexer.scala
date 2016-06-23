@@ -24,24 +24,45 @@ class MeshLexer (dataHome : String, meshXML : String) extends Lexer {
     words.foreach { word =>
       breakable {
 
-        var pos = -1
-	while ({ pos = sentence.indexOf (word, pos + 1); pos } > -1) {
+        if (word.indexOf (" ") > -1) {
+          var pos = -1
+	  while ({ pos = sentence.indexOf (word, pos + 1); pos } > -1) {
 
-          // Need to better handle:
-          //  1. Exact matches. Make sure p53 does not match p53xyz
-          //  2. Multi word matches wrt #1.
+            // Need to better handle:
+            //  1. Exact matches. Make sure p53 does not match p53xyz
+            //  2. Multi word matches wrt #1.
 
-          val textPos = position.text + pos
-          features.add (new WordFeature (
-            word    = word,
-            docPos  = textPos, //position.document + textPos,
-            paraPos = position.paragraph,
-            sentPos = position.sentence ))
+            val textPos = position.text + pos
+              features.add (new WordFeature (
+                word    = word,
+                docPos  = textPos, //position.document + textPos,
+                paraPos = position.paragraph,
+                sentPos = position.sentence ))
 
-          logger.debug (
-            s"** adding word:$word dpos:${position.document} tpos:$textPos " +
-              s" ppos:${position.paragraph} spos:${position.sentence}")
-	}
+            logger.debug (
+              s"** adding word:$word dpos:${position.document} tpos:$textPos " +
+                s" ppos:${position.paragraph} spos:${position.sentence}")
+	  }
+        } else {
+          tokens.foreach { token =>
+            if (token.equals (word)) {
+
+              val textPos = position.text + sentence.indexOf (token)
+                features.add (new WordFeature (
+                  word    = word,
+                  docPos  = textPos, //position.document + textPos,
+                  paraPos = position.paragraph,
+                  sentPos = position.sentence ))
+
+              logger.debug (
+                s"** adding word:$word dpos:${position.document} tpos:$textPos token:$token " +
+                  s" ppos:${position.paragraph} spos:${position.sentence}")
+
+              //break
+            }
+          }
+        }
+
 
         /*
 
