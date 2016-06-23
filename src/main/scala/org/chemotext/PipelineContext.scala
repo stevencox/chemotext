@@ -669,20 +669,21 @@ object Processor {
     logger.info (" -- counting bc binaries")
     val bcPredictedInCTDCount = bcBinaries.count ()
 
-    bcPredicted.collect().foreach { x =>
-      logger.info (s"bc binary predicted: $x")
-    }
-    abPredicted.collect().foreach { x =>
-      logger.info (s"ab binary predicted: $x")
-    }
-
     val bcBinaryFacts = bcBinaries.collect ()
-    bcBinaryFacts.foreach { x =>
-      logger.info (s"bc binary in ctd: $x")
-    }
     val abBinaryFacts = abBinaries.collect ()
-    abBinaryFacts.foreach { x =>
-      logger.info (s"ab binary in ctd: $x")
+    if(logger.isDebugEnabled()) {
+      bcPredicted.collect().foreach { x =>
+        logger.info (s"bc binary predicted: $x")
+      }
+      abPredicted.collect().foreach { x =>
+        logger.info (s"ab binary predicted: $x")
+      }
+      bcBinaryFacts.foreach { x =>
+        logger.debug (s"bc binary in ctd: $x")
+      }
+      abBinaryFacts.foreach { x =>
+        logger.debug (s"ab binary in ctd: $x")
+      }
     }
     println (s" ab predicted count:       ${abPredicted.count}")
     println (s" bc predicted count:       ${bcPredicted.count}")
