@@ -21,6 +21,7 @@ app=ct2
 dev () {
     SAMPLESIZE=0.001
     env=dev
+    SLICES=10000
     MESOS_MASTER=local[2]
     ARG_MESOS_MASTER="--master $MESOS_MASTER"
     ARG_EXECUTOR_MEMORY=10G
@@ -30,12 +31,14 @@ dev () {
  }
 test () {
     dev
+    SLICES=10000
     DATA_HOME=$STARS_HOME/app/chemotext/data
     TMCHEM_HOME=$APP_HOME/data/tmchem
     SAMPLESIZE=1
 }
 prod () {
     SAMPLESIZE=1 #0.02
+    SLICES=10000
     ARG_MESOS_MASTER=
     ARG_EXECUTOR_MEMORY=220G
     ARG_DRIVER_MEMORY=15G
@@ -51,6 +54,7 @@ prod () {
 }
 hatteras () {
     #MEDLINE_DATA=$DATA_HOME/pubmed/medline/medline16n0736.xml
+    SLICES=100000
     APP_HOME=/home/scox/dev/chemotext
     SPARK_HOME=/home/scox/dev/spark/current
     DATA_HOME=$STARS_HOME/var/chemotext
@@ -188,7 +192,7 @@ execute_ct2 () {
 	--ctdAB $CTDABPATH \
 	--ctdBC $CTDBCPATH \
 	--output $OUTPUTPATH \
-        --slices 10000 \
+        --slices $SLICES \
 	--lexerConfig $LEXER_CONFIGPATH \
 	--lexerCache $LEXER_CACHEFILE \
 	--lexerDict $LEXER_DICTIONARY 

@@ -212,7 +212,9 @@ object Processor {
       logger.debug (s"Creating directory $outputPath")
       outputDir.mkdirs ()
     }
-    JSONUtils.writeJSON (quantified, formArticleDigestFileName (outputPath, quantified.fileName))
+    val articleDigestFileName = formArticleDigestFileName (outputPath, quantified.fileName)
+    logger.info (s"*Writing> : $articleDigestFileName")
+    JSONUtils.writeJSON (quantified, articleDigestFileName)
     quantified
   }
 
@@ -234,8 +236,14 @@ object Processor {
   /**
     * Derive A->B, B->C, A->C relationships from raw word positions
     */
-  def findPairs (config : QuantifierConfig) : QuantifiedArticle = {
-    findPairs (quantifyArticle (config))
+  def findPairs (config : QuantifierConfig, outputPath : String) : QuantifiedArticle = {
+    val outputFilePath = formArticleDigestPath (outputPath, config.article)
+    if (! Files.exists (outputFilePath)) {
+      findPairs (quantifyArticle (config))
+    } else {
+      logger.info (s"Skip@> ${config.article}")
+      null
+    }
   }
 
   def findPairs (article : QuantifiedArticle) : QuantifiedArticle = {
@@ -712,18 +720,23 @@ object Processor {
     meshXML      : String,
     sampleSize   : Double,
     chemlex      : String,
-    lexerConf    : TmChemLexerConf) = 
+    lexerConf    : TmChemLexerConf,
+    outputPath   : String) =
   {
     logger.info ("== Analyze articles; calculate binaries.")
     articlePaths.map { a =>
       ( a, meshXML )
     }.sample (false, sampleSize, 1234).map { article =>
-      findPairs (QuantifierConfig (
-        article   = article._1,
-        meshXML   = article._2,
-        chemlex   = chemlex,
-        lexerConf = lexerConf,
-        dataHome  = dataHome))
+      findPairs (
+        QuantifierConfig (
+          article   = article._1,
+          meshXML   = article._2,
+          chemlex   = chemlex,
+          lexerConf = lexerConf,
+          dataHome  = dataHome),
+        outputPath)
+    }.filter { p =>
+      p != null
     }.cache ()
   }
 
@@ -741,7 +754,7 @@ object Processor {
   {
     val vocab = extendVocabulary (AB, BC, AC, dataHome, meshXML)
     logger.debug (s"** Article path count: ${articlePaths.count}")
-    val articles = generatePairs (articlePaths, dataHome, meshXML, sampleSize, chemlex, lexerConf)
+    val articles = generatePairs (articlePaths, dataHome, meshXML, sampleSize, chemlex, lexerConf, outputPath)
     val annotatedArticles = annotateBinaries (articles, AB, BC, AC)
     calculateTriples (annotatedArticles, outputPath)
   }
@@ -789,7 +802,7 @@ class PipelineContext (
     }
   }
 
-  def execute () = {
+  def generateSlices () : ListBuffer[ArrayBuffer[String]] = {
     val articleRootDir = new File (articleRootPath)
     val articleRegex = new Regex (".*.fxml")
     val articleList = getFileList (articleRootDir, articleRegex)
@@ -806,6 +819,45 @@ class PipelineContext (
         logger.info (s"Slice ${sliceId} processing ${articleListSlice.size} files.")
       }
     }
+/*
+    logger.info (s"Scanning for already processed files.")
+    for ( articleListSlice <- sliceBuffer.toList ) {
+      for (article <- articleListSlice) {
+        if (article == null) {
+          articleListSlice -= article
+        } else {
+          val outputFilePath = Processor.formArticleDigestPath (outputPath, article)
+          if (Files.exists (outputFilePath)) {
+            logger.info (s"--> Skipping already processed file: $article")
+            articleListSlice -= article
+          }
+        }
+      }
+    }
+ */
+    sliceBuffer
+  }
+
+  def execute () = {
+    /*
+    val articleRootDir = new File (articleRootPath)
+    val articleRegex = new Regex (".*.fxml")
+    val articleList = getFileList (articleRootDir, articleRegex)
+    val sliceBuffer = ListBuffer[ArrayBuffer[String]] ()
+    if (slices == 1) {
+      logger.info (s"Slice (one slice) ${articleList.size} files.")
+      sliceBuffer += articleList.to[ArrayBuffer]
+    } else {
+      val sliceSize = articleList.size / slices
+      for (sliceId <- 0 to slices - 1) {
+        val start = sliceSize * sliceId
+        val articleListSlice = articleList.slice (start, start + sliceSize)
+        sliceBuffer += articleListSlice.to[ArrayBuffer]
+        logger.info (s"Slice ${sliceId} processing ${articleListSlice.size} files.")
+      }
+    }
+     */
+    val sliceBuffer = generateSlices ()
 
     val corpusPath = "pmc_corpus.txt"
     val vectorModelPath = "pmc_w2v.model"
@@ -816,7 +868,7 @@ class PipelineContext (
     val AC = Processor.getFacts (sparkContext, ctdACPath, ctdSampleSize, a = 0, b = 3, code = 3, pmids = 9)
 
     for ( articleListSlice <- sliceBuffer.toList ) {
-
+      /*
       logger.info (s"Scanning for already processed files.")
       for (article <- articleListSlice) {
         if (article == null) {
@@ -831,8 +883,8 @@ class PipelineContext (
           }
         }
       }
-
-      logger.info (s"----------------------> Processing slice of ${articleListSlice.size} files")
+       */
+      logger.info (s"--> Processing slice of ${articleListSlice.size} files")
       Processor.executeChemotextPipeline (
         articlePaths   = sparkContext.parallelize (articleListSlice),
         dataHome       = dataHome,
@@ -843,7 +895,7 @@ class PipelineContext (
         BC             = BC,
         AC             = AC,
         sampleSize     = sampleSize,
-        outputPath     = outputPath)
+        outputPath     = outputPath.replaceFirst("^(hdfs://|file://)",""))
     }
   }
 
