@@ -1,8 +1,0 @@
-#!/bin/bash
-
-export SPARK_HOME=$PWD/../spark/current    
-export SPARK_DRIVER_MEMORY=6g
-export SPARK_REPL_OPTS="-Xms512m -Xmx1024m -XX:MaxPermSize=256m"
-$SPARK_HOME/bin/spark-shell --jars \
-    $PWD/target/scala-2.10/chemotext-assembly-0.0.1.jar \
-    -Djava.library.path=/usr/local/lib
