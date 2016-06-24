@@ -49,12 +49,12 @@ import scala.util.control.Breaks._
  */
 class ChemotextContext (
   sparkContext    : SparkContext,
-  chemotextConfig  : ChemotextConfig,
+  chemotextConfig : ChemotextConfig,
   lexerConf       : TmChemLexerConf,
   ctdConfig       : CTDConfig)
 {
   val logger = LoggerFactory.getLogger ("ChemotextContext")
-
+/*
   def recursiveListFiles(f : File, r : Regex): Array[File] = {
     val these = f.listFiles
     val good = these.filter(f => r.findFirstIn(f.getName).isDefined)
@@ -76,11 +76,11 @@ class ChemotextContext (
       fileList
     }
   }
-
+ */
   def generateSlices () : List[ArrayBuffer[String]] = {
     val articleRootDir = new File (chemotextConfig.articlePath)
     val articleRegex = new Regex (".*.fxml")
-    val articleList = getFileList (articleRootDir, articleRegex)
+    val articleList = FileList.getFileList (articleRootDir, articleRegex)
     val sliceBuffer = ListBuffer[ArrayBuffer[String]] ()
     if (chemotextConfig.slices == 1) {
       logger.info (s"Slice (one slice) ${articleList.size} files.")

@@ -184,7 +184,7 @@ spark () {
 
 execute_ct2 () {
     spark \
-	--class "org.chemotext.PipelineApp" \
+	--class "org.chemotext.ChemotextApp" \
 	$( find $APP_HOME -name "*assembly*.jar" -print | grep scala ) \
 	--name "Chemotext2:ProcessRawArticle" \
 	--dataHome $DATA_HOME \
