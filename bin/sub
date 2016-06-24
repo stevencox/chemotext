@@ -113,6 +113,7 @@ init () {
     TMCHEM_HOME=$DATA_HOME/tmchem
     VENV=$STARS_HOME/venv
     MEDLINE_DATA=$DATA_HOME/pubmed/medline #/medline16n0736.xml
+    DISTANCETHRESHOLD=100
     CHEMLEX=tmchem #mesh
 }
 
@@ -186,6 +187,7 @@ execute_ct2 () {
 	--dataHome $DATA_HOME \
 	--articles $PUBMEDC \
 	--mesh $MESHXML \
+        --distanceThreshold $DISTANCETHRESHOLD \
 	--chemlex $CHEMLEX \
 	--sample $SAMPLESIZE \
 	--ctdAC $CTDACPATH \
