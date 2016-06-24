@@ -16,8 +16,6 @@ import java.text.BreakIterator
 import java.util.Collections
 import java.util.Locale
 import java.util.Date
-import opennlp.tools.sentdetect.SentenceModel
-import opennlp.tools.sentdetect.SentenceDetectorME
 import org.apache.spark.SparkConf
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkContext._
@@ -46,63 +44,12 @@ import scala.util.matching.Regex
 import scala.xml.XML
 import scala.util.control.Breaks._
 
-/**
-  *  Add OpenNLP as a strategy for sentence segmentation.
-  */
-class SentenceSegmenter {
-  val stream : InputStream = getClass.getResourceAsStream ("/models/en-sent.bin")
-  val model = new SentenceModel (stream);
-  val sentenceDetector = new SentenceDetectorME(model);
-
-  def segment (text : String) = {
-    sentenceDetector.sentDetect (text)
-  }
-}
-
-/**
-  * Defeat the fact that the version of banner used by tmChem uses System.out for logging.
-  * There's no way to configure it, so we'll intercept System.out and turn it off.
-  * Without this, processes fill up the disks on cluster worker nodes, killing the job.
-  */
-class BannerFilterPrintStream (stream: PrintStream) extends PrintStream (stream) {  
-  override def println (s : String) {
-    if (! s.startsWith ("WARNING:") && s.contains ("lists no concept")) {
-      super.print (s)
-    }
-  }
-}
-
-object UniqueID {
-  private var id : Long = 0
-  def inc () = { id += 1; id }
-}
-
-/**
-  *  Track a place in a document
-  */
-case class Position (
-  var document  : Int = 0,
-  var text      : Int = 0,
-  var paragraph : Int = 0,
-  var sentence  : Int = 0
-)
-
-/**
-  * Represenation of known propositions from authoratative databases.
-  */
-case class Fact (
-  L     : String,
-  R     : String,
-  code  : Int,
-  PMIDs : Array[String]
-)
-
 /***
  * Processor for searching articles for terms.
  * Implemented as an object to interoperate with
  * Spark serialization and worker semantics.
  */
-object Processor {
+object ChemotextProcessor {
 
   val logger = LoggerFactory.getLogger("Chemotext2")
 
@@ -143,46 +90,9 @@ object Processor {
 
   case class QuantifierConfig (
     article        : String,
-    pipelineConfig : PipelineConfig,
+    chemotextConfig : ChemotextConfig,
     lexerConf      : TmChemLexerConf
   )
-
-  /**
-    * Create a concatenated corpus of all of PubMed Central
-    */
-  def createCorpus (articles : Array[String], corpus : String) = {
-    var out : PrintWriter = null
-    try {
-      logger.info ("Creating PMC text corpus")
-      out = new PrintWriter (new BufferedWriter (new FileWriter (corpus)))
-      articles.foreach { article =>
-        logger.info (s"adding $article")
-        try {
-          val xml = XML.loadFile (article)
-          val paragraphs = (xml \\ "p")
-          paragraphs.foreach { paragraph =>
-            out.println (paragraph.text)
-          }
-        } catch {
-          case e: SAXParseException =>
-            logger.error (s"Failed to parse $article")
-        }
-      }
-    } catch {
-      case e: IOException =>
-        logger.error (s"Error reading file: $e")
-    } finally {
-      out.close ()
-    }
-  }
-
-  /**
-    * Calculate the vector space of the corpus as a word2vec model
-    */
-  def vectorizeCorpus (corpus : RDD[List[String]]) : Word2VecModel = {
-    val word2vec = new Word2Vec()
-    word2vec.fit (corpus)
-  }
 
   def findTriples (article : QuantifiedArticle, outputPath : String) : QuantifiedArticle = {
     logger.debug (s" Finding triples in AB/BC pair lists ${article.AB.length}/${article.BC.length} long")
@@ -230,7 +140,7 @@ object Processor {
     * Derive A->B, B->C, A->C relationships from raw word positions
     */
   def findPairs (config : QuantifierConfig) : QuantifiedArticle = {
-    val outputFilePath = formArticleDigestPath (config.pipelineConfig.outputPath, config.article)
+    val outputFilePath = formArticleDigestPath (config.chemotextConfig.outputPath, config.article)
     if (! Files.exists (outputFilePath)) {
       findPairs (config, quantifyArticle (config))
     } else {
@@ -241,9 +151,9 @@ object Processor {
 
   def findPairs (config : QuantifierConfig, article : QuantifiedArticle) : QuantifiedArticle = {
     article.copy (
-      AB = findCooccurring (article.A, article.B, config.pipelineConfig.distanceThreshold, 1),
-      BC = findCooccurring (article.B, article.C, config.pipelineConfig.distanceThreshold, 2),
-      AC = findCooccurring (article.A, article.C, config.pipelineConfig.distanceThreshold, 3))
+      AB = findCooccurring (article.A, article.B, config.chemotextConfig.distanceThreshold, 1),
+      BC = findCooccurring (article.B, article.C, config.chemotextConfig.distanceThreshold, 2),
+      AC = findCooccurring (article.A, article.C, config.chemotextConfig.distanceThreshold, 3))
   }
 
   /**
@@ -282,8 +192,8 @@ object Processor {
     var A : List[WordFeature] = List ()
     var B : List[WordFeature] = List ()
     var C : List[WordFeature] = List ()
-    val meshXML = config.pipelineConfig.meshXML
-    val dataHome = config.pipelineConfig.dataHome
+    val meshXML = config.chemotextConfig.meshXML
+    val dataHome = config.chemotextConfig.dataHome
     val vocab = VocabFactory.getVocabulary (dataHome, meshXML)
     logger.debug (s"""Sample vocab:
          A-> ${vocab.A.slice (1, 10)}...
@@ -297,7 +207,7 @@ object Processor {
     var id   : String = null
     try {
       val A_lexer =
-        if (config.pipelineConfig.chemlex == "mesh") new AMeshLexer (dataHome, meshXML)
+        if (config.chemotextConfig.chemlex == "mesh") new AMeshLexer (dataHome, meshXML)
         else TmChemLexer.getInstance (config.lexerConf)
       val B_lexer = new BMeshLexer (dataHome, meshXML)
       val C_lexer = new CMeshLexer (dataHome, meshXML)
@@ -493,13 +403,13 @@ object Processor {
   }
 
   def extendVocabulary (
-    pipelineConfig : PipelineConfig,
+    chemotextConfig : ChemotextConfig,
     AB             : RDD[Fact],
     BC             : RDD[Fact],
     AC             : RDD[Fact]
   ) = {
     logger.info ("Checking vocabulary...")
-    var vocab = VocabFactory.getVocabulary (pipelineConfig.dataHome, pipelineConfig.meshXML)
+    var vocab = VocabFactory.getVocabulary (chemotextConfig.dataHome, chemotextConfig.meshXML)
     if (! vocab.extended) {
 
       logger.info ("Extending basic (MeSH) vocabulary with terms from CTD...")
@@ -525,7 +435,7 @@ object Processor {
         extended = true)
 
       // Cache the extended vocabulary.
-      VocabFactory.writeJSON (pipelineConfig.dataHome, vocab)
+      VocabFactory.writeJSON (chemotextConfig.dataHome, vocab)
     }
     vocab
   }
@@ -585,14 +495,10 @@ object Processor {
 
   }
 
-  case class PMIDToDate (
-    map : Map[String, String]
-  )
-
   def calculateTriples (articlesIn : RDD[QuantifiedArticle], outputPath : String) = {
     logger.info ("== Calculate triples.")
     val articles = articlesIn.map { article =>
-      Processor.findTriples (article, outputPath)
+      findTriples (article, outputPath)
     }
 
     val triples = articles.flatMap { article =>
@@ -675,216 +581,38 @@ object Processor {
     assertions
   }
 
-  /*
-   * The approach below finds pairs only if they occur within an article.
-   * More cohesive, less hits, etc.
-   */
   def generatePairs (
     articlePaths   : RDD[String],
-    pipelineConfig : PipelineConfig,
+    chemotextConfig : ChemotextConfig,
     lexerConf    : TmChemLexerConf) =
   {
     logger.info ("== Analyze articles; calculate binaries.")
     articlePaths.map { a =>
-      ( a, pipelineConfig.meshXML )
-    }.sample (false, pipelineConfig.sampleSize, 1234).map { article =>
+      ( a, chemotextConfig.meshXML )
+    }.sample (false, chemotextConfig.sampleSize, 1234).map { article =>
       findPairs (
         config = QuantifierConfig (
-          article        = article._1,
-          pipelineConfig = pipelineConfig,
-          lexerConf      = lexerConf))
+          article         = article._1,
+          chemotextConfig = chemotextConfig,
+          lexerConf       = lexerConf))
     }.filter { p =>
       p != null
     }.cache ()
   }
 
-  def executeChemotextPipeline (
-    articlePaths : RDD[String],
-    pipelineConfig : PipelineConfig,
-    lexerConf    : TmChemLexerConf,
-    AB           : RDD[Fact],
-    BC           : RDD[Fact],
-    AC           : RDD[Fact]) =
+  def execute (
+    articlePaths    : RDD[String],
+    chemotextConfig : ChemotextConfig,
+    lexerConf       : TmChemLexerConf,
+    AB              : RDD[Fact],
+    BC              : RDD[Fact],
+    AC              : RDD[Fact]) =
   {
-    logger.debug (s"** Pipeline execute: Analyzing ${articlePaths.count} articles.")
-    val vocab = extendVocabulary (pipelineConfig, AB, BC, AC)
-    val articles = generatePairs (articlePaths, pipelineConfig, lexerConf)
+    logger.debug (s"** Chemotext execute: Analyzing ${articlePaths.count} articles.")
+    val vocab = extendVocabulary (chemotextConfig, AB, BC, AC)
+    val articles = generatePairs (articlePaths, chemotextConfig, lexerConf)
     val annotatedArticles = annotateBinaries (articles, AB, BC, AC)
-    calculateTriples (annotatedArticles, pipelineConfig.outputPath)
-  }
-
-}
-
-/***
- * An API for chemotext. Abstracts chemotext automation.
- */
-class PipelineContext (
-  sparkContext    : SparkContext,
-  pipelineConfig  : PipelineConfig,
-  lexerConf       : TmChemLexerConf,
-  ctdConfig       : CTDConfig)
-{
-  val logger = LoggerFactory.getLogger ("PipelineContext")
-
-  def recursiveListFiles(f : File, r : Regex): Array[File] = {
-    val these = f.listFiles
-    val good = these.filter(f => r.findFirstIn(f.getName).isDefined)
-    good ++ these.filter(_.isDirectory).flatMap(recursiveListFiles(_, r))
-  }
-
-  def getFileList (articleRootDir : File, articleRegex : Regex) : Array[String] = {
-    var fileList : Array[String] = null
-    val fileListPath = "filelist.json"
-    val json = JSONUtils.readJSON (fileListPath)
-    if (json != null) {
-      logger.info (s"Loaded existing file list from: $fileListPath")
-      implicit val formats = DefaultFormats
-      json.extract[Array[String]]
-    } else {
-      logger.info (s"Generating file list...")
-      fileList = recursiveListFiles (articleRootDir, articleRegex).map (_.getCanonicalPath)
-      JSONUtils.writeJSON (fileList, fileListPath)
-      fileList
-    }
-  }
-
-  def generateSlices () : List[ArrayBuffer[String]] = {
-    val articleRootDir = new File (pipelineConfig.articlePath)
-    val articleRegex = new Regex (".*.fxml")
-    val articleList = getFileList (articleRootDir, articleRegex)
-    val sliceBuffer = ListBuffer[ArrayBuffer[String]] ()
-    if (pipelineConfig.slices == 1) {
-      logger.info (s"Slice (one slice) ${articleList.size} files.")
-      sliceBuffer += articleList.to[ArrayBuffer]
-    } else {
-      val sliceSize = articleList.size / pipelineConfig.slices
-      for (sliceId <- 0 to pipelineConfig.slices - 1) {
-        val start = sliceSize * sliceId
-        val articleListSlice = articleList.slice (start, start + sliceSize)
-        sliceBuffer += articleListSlice.to[ArrayBuffer]
-        logger.info (s"Slice ${sliceId} processing ${articleListSlice.size} files.")
-      }
-    }
-    sliceBuffer.toList
-  }
-
-  def execute () = {
-    val ctdSampleSize = 1.0
-    val AB = Processor.getFacts (sparkContext, ctdConfig.ctdABPath, ctdSampleSize, a = 0, b = 3, code = 1, pmids = 10)
-    val BC = Processor.getFacts (sparkContext, ctdConfig.ctdBCPath, ctdSampleSize, a = 0, b = 2, code = 2, pmids = 8)
-    val AC = Processor.getFacts (sparkContext, ctdConfig.ctdACPath, ctdSampleSize, a = 0, b = 3, code = 3, pmids = 9)
-
-    val sliceBuffer = generateSlices ()
-    for ( articleListSlice <- sliceBuffer ) {
-      logger.info (s"--> Processing slice of ${articleListSlice.size} files")
-      Processor.executeChemotextPipeline (
-        articlePaths   = sparkContext.parallelize (articleListSlice),
-        pipelineConfig = pipelineConfig,
-        lexerConf      = lexerConf,
-        AB             = AB,
-        BC             = BC,
-        AC             = AC
-      )
-    }
-  }
-}
-
-case class PipelineConfig (
-  articlePath       : String,
-  outputPath        : String,
-  dataHome          : String,
-  meshXML           : String,
-  sampleSize        : Double,
-  distanceThreshold : Int,
-  chemlex           : String,
-  diseaselex        : String,
-  slices            : Int)
-
-case class CTDConfig (
-  ctdACPath : String,
-  ctdABPath : String,
-  ctdBCPath : String)
-
-object PipelineApp {
-
-  val logger = LoggerFactory.getLogger ("Chemotext2App")
-
-  def formPipelineConfigPath (pipelineConfig : PipelineConfig) = {
-    Paths.get (pipelineConfig.outputPath, "pipelineOpts.json").toFile().getCanonicalPath ()
-  }
-
-  def main(args: Array[String]) {
-
-    val opts = Scallop (args)
-      .version("v1.0.0 (c) 2016 Chemotext2") // --version option is provided for you
-      .banner("""Usage: Chemotext2 [OPTION]...
-                |Chemotext2 searches medical literature for testable toxicology hypotheses.
-                |Options:
-                |""".stripMargin) // --help is provided, will also exit after printing version,
-                                  // banner, options usage, and footer
-      .footer("\n(c) UNC-CH / RENCI")
-
-      .opt[String]("name",     descr = "Name of the application.")
-      .opt[String]("dataHome", descr = "System root data directory")
-      .opt[String]("articles", descr = "Root directory of articles to analyze")
-      .opt[String]("mesh",     descr = "Path to MeSH XML definition file")
-      .opt[String]("chemlex",  descr = "Chemical lexer to use (mesh|tmchem)")
-      .opt[Double]("sample",   descr = "Sample size to apply to total article collection")
-      .opt[String]("ctdAC",    descr = "Path to CTD AC data file")
-      .opt[String]("ctdAB",    descr = "Path to CTD AB data file")
-      .opt[String]("ctdBC",    descr = "Path to CTD BC data file")
-      .opt[String]("output",   descr = "Output directory for process output")
-      .opt[Int]   ("slices",   descr = "Total number of slices of article data")
-      .opt[String]("lexerConfig",       descr = "Lexical analyzer configuration path (tmChem)")
-      .opt[String]("lexerCache",        descr = "Lexical analyzer cache file path (tmChem)")
-      .opt[String]("lexerDict",         descr = "Lexical analyzer dictionary path (tmChem)")
-      .opt[Int]   ("distanceThreshold", descr = "Threshold distance between terms to constitute a binary")
-
-    // http://alvinalexander.com/scala/how-to-load-xml-file-in-scala-load-open-read
-    val appName = opts[String]("name")
-
-    val ctdConfig = CTDConfig (
-      ctdACPath = opts[String]("ctdAC"),
-      ctdABPath = opts[String]("ctdAB"),
-      ctdBCPath = opts[String]("ctdBC"))
-
-    val tmChemConf = TmChemLexerConf (
-      configPath     = opts[String]("lexerConfig"),
-      cacheFileName  = opts[String]("lexerCache"),
-      dictionaryPath = opts[String]("lexerDict"))
-
-    val pipelineConfig = PipelineConfig (
-      articlePath       = opts[String]("articles"),
-      outputPath        = opts[String]("output").replaceFirst("^(hdfs://|file://)",""),
-      dataHome          = opts[String]("dataHome").replaceFirst("^(hdfs://|file://)",""),
-      meshXML           = opts[String]("mesh"),
-      sampleSize        = opts[Double]("sample"),
-      distanceThreshold = opts[Int]   ("distanceThreshold"),
-      chemlex           = opts[String]("chemlex"),
-      diseaselex        = "mesh",
-      slices            = opts[Int]   ("slices"))
-
-    JSONUtils.writeJSON (
-      pipelineConfig,
-      formPipelineConfigPath (pipelineConfig))
-
-    logger.info (s"appName        : $appName")
-    logger.info (s"pipelineConfig : $pipelineConfig")
-    logger.info (s"tmChemConf     : $tmChemConf")
-    logger.info (s"ctdConfig      : $ctdConfig")
-
-    // Connect to Spark
-    val conf = new SparkConf().setAppName (appName)
-    val sc = new SparkContext (conf)
-
-    // Create and execute the pipeline
-    val pipeline = new PipelineContext (
-      sparkContext   = sc,
-      pipelineConfig = pipelineConfig,
-      lexerConf      = tmChemConf,
-      ctdConfig      = ctdConfig)
-
-    pipeline.execute ()    
+    calculateTriples (annotatedArticles, chemotextConfig.outputPath)
   }
 }
 

@@ -159,6 +159,9 @@ main () {
             --app\=*)
                 app=$(getarg $arg)
                 shift;;
+            --out\=*)
+                out=$(getarg $arg)
+                OUTPUTPATH=$DATA_HOME/output.$out
         esac
     done
     execute
