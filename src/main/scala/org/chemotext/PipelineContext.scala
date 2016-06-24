@@ -1,5 +1,6 @@
 package org.chemotext
 
+import java.lang.System
 import banner.types.Sentence
 import java.io.File
 import java.io.PrintWriter
@@ -514,16 +515,19 @@ object Processor {
       vocab = new Vocabulary (
 
         A = vocab.A.union (cleanWord (AB.map { e => e.L })).
-          distinct.filter (!_.equals ("apoptosis")),
+          distinct.
+          filter { w => !w.equals("was") && !w.equals("for") && !w.equals ("large") && !w.equals ("apotosis") },
 
         B = vocab.B.
           union (cleanWord (AB.map { e => e.R })).
           union (cleanWord (BC.map { e => e.L })).
+          filter { w => !w.equals("was") && !w.equals("for") && !w.equals ("large") }.
           distinct,
 
         C = vocab.C.
           union (cleanWord (AC.map { e => e.R })).
           union (cleanWord (BC.map { e => e.R })).
+          filter { w => !w.equals("was") && !w.equals("for") && !w.equals ("large") }.
           distinct,
 
         extended = true)
@@ -598,26 +602,6 @@ object Processor {
     val articles = articlesIn.map { article =>
       Processor.findTriples (article, outputPath)
     }
-
-    /*
-    val map = new HashMap[String, String] ()
-    articles.map { article =>
-      (article.id, article.date)
-    }.collect.foreach { i =>
-      map.put (i._1, i._2)
-    }
-
-    val pmidToDate = PMIDToDate (scala.collection.immutable.HashMap () ++ map)
-
-    JSONUtils.writeJSON (pmidToDate, outputPath + File.separator + "pmid_date.json")
-     */
-
-    /** test we can read the json we just wrote.
-    val json = JSONUtils.readJSON (outputPath + File.separator + "pmid_date.json")
-    implicit val formats = DefaultFormats
-    val pmidToDate2 = json.extract[PMIDToDate]
-    println (s" ${pmidToDate2.map}")
-      */
 
     val triples = articles.flatMap { article =>
       article.ABC
@@ -729,13 +713,13 @@ object Processor {
       ( a, meshXML )
     }.sample (false, sampleSize, 1234).map { article =>
       findPairs (
-        QuantifierConfig (
+        config = QuantifierConfig (
           article   = article._1,
           meshXML   = article._2,
           chemlex   = chemlex,
           lexerConf = lexerConf,
           dataHome  = dataHome),
-        outputPath)
+        outputPath = outputPath)
     }.filter { p =>
       p != null
     }.cache ()
@@ -803,7 +787,7 @@ class PipelineContext (
     }
   }
 
-  def generateSlices () : ListBuffer[ArrayBuffer[String]] = {
+  def generateSlices () : List[ArrayBuffer[String]] = {
     val articleRootDir = new File (articleRootPath)
     val articleRegex = new Regex (".*.fxml")
     val articleList = getFileList (articleRootDir, articleRegex)
@@ -820,45 +804,10 @@ class PipelineContext (
         logger.info (s"Slice ${sliceId} processing ${articleListSlice.size} files.")
       }
     }
-/*
-    logger.info (s"Scanning for already processed files.")
-    for ( articleListSlice <- sliceBuffer.toList ) {
-      for (article <- articleListSlice) {
-        if (article == null) {
-          articleListSlice -= article
-        } else {
-          val outputFilePath = Processor.formArticleDigestPath (outputPath, article)
-          if (Files.exists (outputFilePath)) {
-            logger.info (s"--> Skipping already processed file: $article")
-            articleListSlice -= article
-          }
-        }
-      }
-    }
- */
-    sliceBuffer
+    sliceBuffer.toList
   }
 
   def execute () = {
-    /*
-    val articleRootDir = new File (articleRootPath)
-    val articleRegex = new Regex (".*.fxml")
-    val articleList = getFileList (articleRootDir, articleRegex)
-    val sliceBuffer = ListBuffer[ArrayBuffer[String]] ()
-    if (slices == 1) {
-      logger.info (s"Slice (one slice) ${articleList.size} files.")
-      sliceBuffer += articleList.to[ArrayBuffer]
-    } else {
-      val sliceSize = articleList.size / slices
-      for (sliceId <- 0 to slices - 1) {
-        val start = sliceSize * sliceId
-        val articleListSlice = articleList.slice (start, start + sliceSize)
-        sliceBuffer += articleListSlice.to[ArrayBuffer]
-        logger.info (s"Slice ${sliceId} processing ${articleListSlice.size} files.")
-      }
-    }
-     */
-    val sliceBuffer = generateSlices ()
 
     val corpusPath = "pmc_corpus.txt"
     val vectorModelPath = "pmc_w2v.model"
@@ -868,23 +817,8 @@ class PipelineContext (
     val BC = Processor.getFacts (sparkContext, ctdBCPath, ctdSampleSize, a = 0, b = 2, code = 2, pmids = 8)
     val AC = Processor.getFacts (sparkContext, ctdACPath, ctdSampleSize, a = 0, b = 3, code = 3, pmids = 9)
 
-    for ( articleListSlice <- sliceBuffer.toList ) {
-      /*
-      logger.info (s"Scanning for already processed files.")
-      for (article <- articleListSlice) {
-        if (article == null) {
-          articleListSlice -= article
-        } else {
-          val outputFilePath = Processor.formArticleDigestPath (outputPath, article)
-          val exists = Files.exists (outputFilePath)
-          logger.info (s"-------......>>> Output File Exists?: $article: $exists")
-          if (Files.exists (outputFilePath)) {
-            logger.info (s"--------------------------> Skipping already processed file: $article")
-            articleListSlice -= article
-          }
-        }
-      }
-       */
+    val sliceBuffer = generateSlices ()
+    for ( articleListSlice <- sliceBuffer ) {
       logger.info (s"--> Processing slice of ${articleListSlice.size} files")
       Processor.executeChemotextPipeline (
         articlePaths   = sparkContext.parallelize (articleListSlice),
@@ -899,8 +833,6 @@ class PipelineContext (
         outputPath     = outputPath.replaceFirst("^(hdfs://|file://)",""))
     }
   }
-
-
 }
 
 object PipelineApp {

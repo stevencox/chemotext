@@ -48,8 +48,10 @@ object VocabFactory {
     val jsonPath = Paths.get (dataHome, defaultJsonPath).toFile().getCanonicalPath ()
     if (cache == null) {
 
+      logger.info (s"Loading vocabulary from: $jsonPath")
+
       // Read JSON
-      cache = readJSON (jsonPath) //defaultJsonPath)
+      cache = readJSON (jsonPath)
       if (cache == null) {
 
         logger.info ("Vocabulary cache miss. Generating vocabulary from sources.")
@@ -60,7 +62,7 @@ object VocabFactory {
         cache = new Vocabulary (mesh.A.toList, mesh.B.toList, mesh.C.toList)
 
         // Write JSON
-        writeJSON (cache, jsonPath) //defaultJsonPath)
+        writeJSON (cache, jsonPath)
       }
     }
     cache
@@ -74,16 +76,13 @@ object VocabFactory {
       implicit val formats = DefaultFormats
       vocabulary = json.extract [Vocabulary]
       mesh = new MeSH ()
-      //logger.debug (s"vocab.A => ${vocabulary.A}")
-      //logger.debug (s"vocab.B => ${vocabulary.B}")
-      //logger.debug (s"vocab.C => ${vocabulary.C}")
     }
     vocabulary
   }
 
   def writeJSON (dataHome : String, vocab : Vocabulary) : Unit = {
     val jsonPath = Paths.get (dataHome, defaultJsonPath).toFile().getCanonicalPath ()
-    writeJSON (vocab, jsonPath) //defaultJsonPath)
+    writeJSON (vocab, jsonPath)
   }
 
   def writeJSON (vocab : Vocabulary, jsonPath : String) : Unit = {
