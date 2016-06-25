@@ -231,6 +231,10 @@ class MedlineConf(object):
 
 class Medline(object):
 
+    data_root = "/projects/stars/var/chemotext/pmid"
+    use_mem_cache = True
+    sc = None
+
     def __init__(self, sc, medline_path, use_mem_cache=False):
         self.sc = sc
         self.medline_path = medline_path
@@ -239,7 +243,6 @@ class Medline(object):
     def load_medline_xml (self, file_name):
         file_uri = file_name
         if self.use_mem_cache:
-            #file_uri = file_name.replace ("/projects/stars/var", "hdfs://stars-c0.edc.renci.org:9000")
             file_uri = file_name.replace ("/projects/stars/var", "alluxio://stars-c0.edc.renci.org:19998")
             print ("FILE URI: {0}".format (file_uri))
         sqlContext = SQLContext (self.sc)
@@ -247,8 +250,6 @@ class Medline(object):
             options(rowTag='MedlineCitation').load (file_uri)
 
     def load_pmid_date (self):
-        data_root = "/projects/stars/var/chemotext/pmid"
-
         logger.info ("Load medline data to determine dates by pubmed ids")
         sqlContext = SQLContext (self.sc)
 
@@ -272,7 +273,7 @@ class Medline(object):
                               select (piece_df["DateCreated"], piece_df["PMID"]). \
                               map (lambda r : Medline.map_date (r))
 
-            json_path = os.path.join (data_root, json_name)
+            json_path = os.path.join (Medline.data_root, json_name)
             with open(json_path, "w") as stream:
                 stream.write (json.dumps (pmid_date_slice.collect (),
                                           sort_keys=True,
@@ -288,26 +289,15 @@ class Medline(object):
                 pass
                 #break
             
-        ''' For all Medline records, map pubmed id to creation date 
-        return pmid_date.                                         \
-            select (pmid_date["DateCreated"], pmid_date["PMID"]). \
-            rdd.                                                  \
-            map (lambda r : Medline.map_date (r))
-        '''
 
         '''
-        ------------------------- parallel
+        ------------------------- parallel?
         '''
-    data_root = "/projects/stars/var/chemotext/pmid"
-    use_mem_cache = True
-    sc = None
-
     @staticmethod
     def parse_medline_xml (file_name):
         dataframe = None
-
         json_name = os.path.join (Medline.data_root, os.path.basename (file_name).replace (".xml", ".json"))
-        if False: #os.path.exists (json_name):
+        if os.path.exists (json_name):
             logger.info ("** JSON for {0} exists: {1}".format (file_name, json_name))
         else:
             file_uri = file_name
@@ -323,13 +313,11 @@ class Medline(object):
                     map (lambda r : Medline.map_date_numeric (r))
         return dataframe
 
-    # 92666150  2564 -rw-r--r-- 1 evryscope service accounts 2609679 Jun 22 15:54 /projects/stars/var/chemotext/pmid/pmid_date.json
-    # 92666150 11096 -rw-r--r-- 1 evryscope service accounts 11309928 Jun 22 16:07 /projects/stars/var/chemotext/pmid/pmid_date.json
+    ''' Load it all and write one big output file '''
     def load_pmid_date_concurrent (self):
         logger.info ("Load medline data to determine dates by pubmed ids")
         Medline.sc = self.sc
         archives = glob.glob (os.path.join (self.medline_path, "*.xml"))
-        #archives = archives [4:8]
         dataframes = map (self.parse_medline_xml, archives)
         union = self.sc.union (dataframes)
         json_path = os.path.join (Medline.data_root, "pmid_date.json")
@@ -367,6 +355,11 @@ class Medline(object):
         datetime = SerializationUtil.parse_date ("{0}-{1}-{2}".format (day, month, year))
         timestamp = int(time.mktime (datetime.timetuple ()))             
         return ( pmid, timestamp )
+
+    @staticmethod
+    def load_map (file_name):
+        pass
+        #sqlContext = SQLContext (sc)
 
 class Word2VecConf(Conf):
     def __init__(self, host, venv, framework_name, input_dir, mesh):

@@ -27,30 +27,32 @@ dev () {
     ARG_EXECUTOR_MEMORY=10G
     ARG_TOTAL_EXECUTOR_CORES=2
     ARG_MAX_RESULT_SIZE=1G
+    ARG_DEFAULT_PARALLELISM=6
     ARG_DRIVER_MEMORY=10G
  }
 test () {
     dev
-    SLICES=10000
+    SLICES=100
     DATA_HOME=$STARS_HOME/app/chemotext/data
     TMCHEM_HOME=$APP_HOME/data/tmchem
     SAMPLESIZE=1
 }
 prod () {
     SAMPLESIZE=1 #0.02
-    SLICES=10000
+    SLICES=100
     ARG_MESOS_MASTER=
     ARG_EXECUTOR_MEMORY=220G
-    ARG_DRIVER_MEMORY=15G
+    ARG_DRIVER_MEMORY=10G
     ARG_TOTAL_EXECUTOR_CORES=170
     ARG_MAX_RESULT_SIZE=15G
+    ARG_DEFAULT_PARALLELISM=128
     export MESOS_MASTER=mesos://$(hostname):5050
-    export MESOS_MASTER=mesos://stars-c1.edc.renci.org:5050
+    export MESOS_MASTER=mesos://stars-c0.edc.renci.org:5050
 #    export MESOS_MASTER=zk://stars-c0.edc.renci.org:2181/mesos
     PROXY_SETTINGS='--conf "spark.driver.extraJavaOptions=-Dhttp.proxyHost=gateway.ad.renci.org -Dhttp.proxyPort=8080 -Dhttps.proxyHost=gateway.ad.renci.org -Dhttps.proxyPort=8080" '
     EXTRA_JAVA_OPTS="-Dhttp.proxyHost=gateway.ad.renci.org -Dhttp.proxyPort=8080 -Dhttps.proxyHost=gateway.ad.renci.org -Dhttps.proxyPort=8080"
 
-    DATA_HOME=hdfs://stars-c0.edc.renci.org:9000/chemotext
+    DATA_HOME=file://$STARS_HOME/var/chemotext #hdfs://stars-c0.edc.renci.org:9000/chemotext
 }
 hatteras () {
     #MEDLINE_DATA=$DATA_HOME/pubmed/medline/medline16n0736.xml
@@ -60,6 +62,7 @@ hatteras () {
     DATA_HOME=$STARS_HOME/var/chemotext
     SAMPLESIZE=1 #0.001
     VENV=/home/scox/dev/venv
+    ARG_DEFAULT_PARALLELISM=128
     ARG_TOTAL_EXECUTOR_CORES=8
     ARG_EXECUTOR_MEMORY=10G
     ARG_DRIVER_MEMORY=5G
@@ -124,7 +127,7 @@ config () {
     LEXER_CONFIGPATH=$TMCHEM_HOME/config/banner_JOINT_${env}.xml
     LEXER_CACHEFILE=$TMCHEM_HOME/cacheFile.tsv
     LEXER_DICTIONARY=$TMCHEM_HOME/data/dict.txt
-    OUTPUTPATH=$DATA_HOME/output.mesh.full
+    OUTPUTPATH=$DATA_HOME/output.mesh.full.1
     INPUTPATH=$OUTPUTPATH
     mkdir -p $OUTPUTPATH
     export JAVA_OPTS="-Xmx5G -Xms5G"
@@ -169,7 +172,9 @@ spark () {
     #proxy
     $SPARK_HOME/bin/spark-submit \
 	$ARG_MESOS_MASTER \
+	--executor-cores 32 \
 	--total-executor-cores $ARG_TOTAL_EXECUTOR_CORES \
+	--conf spark.default.parallelism=$ARG_DEFAULT_PARALLELISM \
 	--conf spark.driver.memory=$ARG_DRIVER_MEMORY \
 	--conf spark.executor.memory=$ARG_EXECUTOR_MEMORY \
 	--conf spark.driver.maxResultSize=$ARG_MAX_RESULT_SIZE \
@@ -213,7 +218,7 @@ execute_ct1 () {
 	--input $MEDLINE_DATA
 }
 execute_pmid () {
-    ARG_EXECUTOR_MEMORY=10G
+    ARG_EXECUTOR_MEMORY=5G
     ARG_DRIVER_MEMORY=6G
     ARG_TOTAL_EXECUTOR_CORES=5
     ARG_MAX_RESULT_SIZE=5G
