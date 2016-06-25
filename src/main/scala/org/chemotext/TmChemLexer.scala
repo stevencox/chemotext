@@ -27,6 +27,7 @@ import org.slf4j.LoggerFactory
 import scala.collection.JavaConversions._
 import scala.collection.mutable.HashMap
 import scala.collection.mutable.ListBuffer
+import scala.util.matching.Regex
 
 case class TmChemLexerConf (
   configPath     : String,
@@ -151,6 +152,36 @@ class TmChemLexer (conf : TmChemLexerConf) extends Lexer {
     dict.toMap
   }
 
+  /*
+   16/06/25 12:54:38 INFO TmChemLexer[Banner]: ----------> word: monoclinic,, index: 0, sent: [monoclinic,]
+   16/06/25 12:54:38 INFO TmChemLexer[Banner]: ----------> word: = 118.250, index: 0, sent: [= 118.250]
+   16/06/25 12:54:38 INFO TmChemLexer[Banner]: ----------> word: 7179 reflections, index: 0, sent: [7179 reflections]
+   16/06/25 12:54:38 INFO TmChemLexer[Banner]: ----------> word: (10) 3, index: 0, sent: [(10) 3]
+   16/06/25 12:54:38 INFO TmChemLexer[Banner]: ----------> word: 301 parameters, index: 0, sent: [301 parameters]
+   16/06/25 12:54:38 INFO TmChemLexer[Banner]: ----------> word: 33 restraints, index: 0, sent: [33 restraints]
+   also...
+   (4)
+   n = 4
+   = 3
+   */
+  // (3) word
+  // (4)
+  //val listNumberPattern = new Regex ("\\(\\d+\\)( \\w+)?")
+  //val numberWordPattern = new Regex ("\\d+ \\w+")
+  //val decimalNumber = new Regex ("\d+(\.\d)?")
+  // = 3
+  // x = 4
+  // 
+  val rejectPattern = new Regex ("^\\(\\d+\\)( \\w+)?$|^\\d+(\\.\\d)$?|^= .*$|^\\w+ = \\d$")
+  /*
+16/06/25 14:04:28 INFO TmChemLexer[Banner]: REJECTED: bis(3-pyridyl) porphyrin 1
+16/06/25 14:04:28 INFO TmChemLexer[Banner]: REJECTED: pyridyl cholate 3
+16/06/25 14:04:28 INFO TmChemLexer[Banner]: REJECTED: biotinylated pyridyl cholate 4
+16/06/25 14:04:29 INFO TmChemLexer[Banner]: REJECTED: 53.84)tri-nucleotide101
+16/06/25 14:04:29 INFO TmChemLexer[Banner]: REJECTED: tetra-nucleotide18 (4.42)20 (6.2)penta-nucleotide4
+16/06/25 14:04:30 INFO TmChemLexer[Banner]: REJECTED: methylated dinucleotides (5-cpg-3)
+16/06/25 14:04:31 INFO TmChemLexer[Banner]: REJECTED: 6-hydroxyl kaempferol 3-0 arabinoglucoside
+   */
   def findTokens (
     sentence : String,
     features : ListBuffer[WordFeature]) : Unit =
@@ -166,10 +197,22 @@ class TmChemLexer (conf : TmChemLexerConf) extends Lexer {
           // If the word has been altered (normalized) by banner, then looking for it by index
           // literally will be not quite right. But in the greater scheme, it may be the best we
           // can do since mentinon.getStart() doesn't do quite what we want.
-          val textPos = position.text + sentence.indexOf (word) //mention.getStart ()
+
+          val index = sentence.indexOf (word)
+          val textPos = position.text + index //mention.getStart ()
 	  
- 	  if (word.split(" ").length < 3) {
-             features.add (new WordFeature ( 
+          // This ought to slow things down :(
+          val valid = (
+            word.split (" ").length < 5 &&
+              rejectPattern.findAllIn(word).length == 0 &&
+//              ! (word.contains (" =") || word.contains ("= ")) &&
+//              ! ( word.startsWith ("(") && word.endsWith (")") && word.length < 5 ) &&
+              ! ( word.indexOf ("doi: ") > -1 )
+          )
+ 	  if (valid) { //word.split(" ").length < 3) {
+            //logger.info (s"----------> word: $word, index: $index, sent: [$sentence]")
+
+            features.add (new WordFeature (
                 word    = word,
                 docPos  = textPos, //position.document + textPos,
                 paraPos = position.paragraph,
@@ -177,13 +220,16 @@ class TmChemLexer (conf : TmChemLexerConf) extends Lexer {
 
              val p = position
              logger.debug (s"** adding word:$word dpos:${p.document} tpos:$textPos ppos:${p.paragraph} spos:${p.sentence}")
-	  }
+	  } else {
+            logger.info (s"REJECTED: $word")
+          }
         }
         position.sentence += 1
         position.text += sentence.length ()
       }
     } catch {
       case e: Exception =>
+        e.printStackTrace ()
         logger.error (s"Error normalizing [$capitalSentence]")
     }
   }

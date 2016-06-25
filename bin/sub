@@ -128,7 +128,10 @@ config () {
     LEXER_CONFIGPATH=$TMCHEM_HOME/config/banner_JOINT_${env}.xml
     LEXER_CACHEFILE=$TMCHEM_HOME/cacheFile.tsv
     LEXER_DICTIONARY=$TMCHEM_HOME/data/dict.txt
-    OUTPUTPATH=$DATA_HOME/output.mesh.full.1
+    OUTPUTPATH=$DATA_HOME/output.mesh.full
+    if [ -z "$OUTPUTPATH" ]; then
+        OUTPUTPATH=$DATA_HOME/output.mesh.full
+    fi
     INPUTPATH=$OUTPUTPATH
     mkdir -p $OUTPUTPATH
     export JAVA_OPTS="-Xmx5G -Xms5G"

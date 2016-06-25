@@ -609,7 +609,7 @@ object ChemotextProcessor {
     AC              : RDD[Fact]) =
   {
     logger.debug (s"** Chemotext execute: Analyzing ${articlePaths.count} articles.")
-    val vocab = extendVocabulary (chemotextConfig, AB, BC, AC)
+    //val vocab = extendVocabulary (chemotextConfig, AB, BC, AC)
     val articles = generatePairs (articlePaths, chemotextConfig, lexerConf)
     val annotatedArticles = annotateBinaries (articles, AB, BC, AC)
     calculateTriples (annotatedArticles, chemotextConfig.outputPath)

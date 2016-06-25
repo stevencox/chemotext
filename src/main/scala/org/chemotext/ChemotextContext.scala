@@ -54,29 +54,6 @@ class ChemotextContext (
   ctdConfig       : CTDConfig)
 {
   val logger = LoggerFactory.getLogger ("ChemotextContext")
-/*
-  def recursiveListFiles(f : File, r : Regex): Array[File] = {
-    val these = f.listFiles
-    val good = these.filter(f => r.findFirstIn(f.getName).isDefined)
-    good ++ these.filter(_.isDirectory).flatMap(recursiveListFiles(_, r))
-  }
-
-  def getFileList (articleRootDir : File, articleRegex : Regex) : Array[String] = {
-    var fileList : Array[String] = null
-    val fileListPath = "filelist.json"
-    val json = JSONUtils.readJSON (fileListPath)
-    if (json != null) {
-      logger.info (s"Loaded existing file list from: $fileListPath")
-      implicit val formats = DefaultFormats
-      json.extract[Array[String]]
-    } else {
-      logger.info (s"Generating file list...")
-      fileList = recursiveListFiles (articleRootDir, articleRegex).map (_.getCanonicalPath)
-      JSONUtils.writeJSON (fileList, fileListPath)
-      fileList
-    }
-  }
- */
   def generateSlices () : List[ArrayBuffer[String]] = {
     val articleRootDir = new File (chemotextConfig.articlePath)
     val articleRegex = new Regex (".*.fxml")
@@ -89,9 +66,21 @@ class ChemotextContext (
       val sliceSize = articleList.size / chemotextConfig.slices
       for (sliceId <- 0 to chemotextConfig.slices - 1) {
         val start = sliceSize * sliceId
-        val articleListSlice = articleList.slice (start, start + sliceSize)
+        val articleListSlice = articleList.slice (start, start + sliceSize).filter { _ != null }
         sliceBuffer += articleListSlice.to[ArrayBuffer]
         logger.info (s"Slice ${sliceId} processing ${articleListSlice.size} files.")
+      }
+    }
+    for (slice <- sliceBuffer) {
+      for (articleName <- slice) {
+        val articlePath = ChemotextProcessor.formArticleDigestPath (chemotextConfig.outputPath, articleName)
+        if (articlePath == null) {
+          logger.info (s"Skip> ${articleName}")
+          slice -= articleName
+        } else if (Files.exists (articlePath)) {
+          logger.info (s"Skip> ${articlePath.toFile.getCanonicalPath}")
+          slice -= articleName
+        }
       }
     }
     sliceBuffer.toList
@@ -102,6 +91,8 @@ class ChemotextContext (
     val AB = ChemotextProcessor.getFacts (sparkContext, ctdConfig.ctdABPath, ctdSampleSize, a = 0, b = 3, code = 1, pmids = 10)
     val BC = ChemotextProcessor.getFacts (sparkContext, ctdConfig.ctdBCPath, ctdSampleSize, a = 0, b = 2, code = 2, pmids = 8)
     val AC = ChemotextProcessor.getFacts (sparkContext, ctdConfig.ctdACPath, ctdSampleSize, a = 0, b = 3, code = 3, pmids = 9)
+
+    ChemotextProcessor.extendVocabulary (chemotextConfig, AB, BC, AC)
 
     val sliceBuffer = generateSlices ()
     for ( articleListSlice <- sliceBuffer ) {
