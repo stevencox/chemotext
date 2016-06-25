@@ -1,0 +1,59 @@
+import org.chemotext.JSONUtils  
+import org.json4s._
+import scala.compat.Platform
+
+import java.net.URI
+import org.apache.hadoop.fs.FileSystem
+import org.apache.hadoop.fs.FileStatus
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs.Path
+
+// spark-shell --total-executor-cores 8 --jars /projects/stars/app/chemotext/target/scala-2.10/chemotext-assembly-0.0.1.jar --driver-memory 15G
+
+val jsonRoot = "/projects/stars/app/chemotext"
+val fileList = "f2.json"
+val medline = "medline.json"
+val articleJSON = JSONUtils.readJSON (s"${jsonRoot}/${fileList}")
+val medlineJSON = JSONUtils.readJSON (s"${jsonRoot}/${medline}")
+
+implicit val formats = DefaultFormats
+val articleNames = articleJSON.extract[Array[String]]
+val articles = sc.parallelize (articleNames)
+val hdfs = articles.map { f =>
+  f.replace ("/projects/stars/var", "hdfs://stars-c0.edc.renci.org:9000")
+}
+
+var hdfsTotTime = 0L
+hdfs.map { f =>
+  val start = Platform.currentTime
+  val r = sc.textFile (f)
+  val duration = Platform.currentTime - start
+  hdfsTotTime += duration
+}
+println (s"HDFS total time: ${hdfsTotTime}")
+println (s"HDFS total files: ${hdfs.count}")
+println (s"HDFS avg time: ${hdfsTotTime/hdfs.count}")
+
+var nfsTotTime = 0L
+articles.collect.foreach { f =>
+  val start = Platform.currentTime
+  val r = sc.textFile (f)
+  val duration = Platform.currentTime - start
+  nfsTotTime += duration
+  println (s"NFS: file: $f size: ${articles.count} time: ${duration}")
+}
+println (s"NFS total time: ${nfsTotTime}")
+println (s"NFS total files: ${articles.count}")
+println (s"NFS avg time: ${nfsTotTime / articles.count}")
+
+val medlineNames = medlineJSON.extract[Array[String]]
+medlineNames.foreach { m => sc.textFile (m, 32) }
+
+val hdfsMedline = medlineNames.map { f =>
+  f.replace ("/projects/stars/var", "hdfs://stars-c0.edc.renci.org:9000")
+}.foreach { m =>
+  val count = sc.textFile (m, 2).cache ().count ()
+  println (s"count: $count")
+}
+
+

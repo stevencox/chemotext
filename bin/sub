@@ -116,6 +116,7 @@ init () {
     TMCHEM_HOME=$DATA_HOME/tmchem
     VENV=$STARS_HOME/venv
     MEDLINE_DATA=$DATA_HOME/pubmed/medline #/medline16n0736.xml
+    DISTANCETHRESHOLD=100
     CHEMLEX=tmchem #mesh
 }
 
@@ -161,6 +162,9 @@ main () {
             --app\=*)
                 app=$(getarg $arg)
                 shift;;
+            --out\=*)
+                out=$(getarg $arg)
+                OUTPUTPATH=$DATA_HOME/output.$out
         esac
     done
     execute
@@ -185,12 +189,13 @@ spark () {
 
 execute_ct2 () {
     spark \
-	--class "org.chemotext.PipelineApp" \
+	--class "org.chemotext.ChemotextApp" \
 	$( find $APP_HOME -name "*assembly*.jar" -print | grep scala ) \
 	--name "Chemotext2:ProcessRawArticle" \
 	--dataHome $DATA_HOME \
 	--articles $PUBMEDC \
 	--mesh $MESHXML \
+        --distanceThreshold $DISTANCETHRESHOLD \
 	--chemlex $CHEMLEX \
 	--sample $SAMPLESIZE \
 	--ctdAC $CTDACPATH \
