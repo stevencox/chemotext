@@ -71,6 +71,7 @@ class ChemotextContext (
         logger.info (s"Slice ${sliceId} processing ${articleListSlice.size} files.")
       }
     }
+/*
     for (slice <- sliceBuffer) {
       for (articleName <- slice) {
         val articlePath = ChemotextProcessor.formArticleDigestPath (chemotextConfig.outputPath, articleName)
@@ -83,6 +84,7 @@ class ChemotextContext (
         }
       }
     }
+ */
     sliceBuffer.toList
   }
 
