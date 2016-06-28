@@ -39,7 +39,7 @@ class MeshLexer (dataHome : String, meshXML : String) extends Lexer {
                 paraPos = position.paragraph,
                 sentPos = position.sentence ))
 
-            logger.debug (
+            logger.info (
               s"** adding word:$word dpos:${position.document} tpos:$textPos " +
                 s" ppos:${position.paragraph} spos:${position.sentence}")
 	  }
@@ -54,7 +54,7 @@ class MeshLexer (dataHome : String, meshXML : String) extends Lexer {
                   paraPos = position.paragraph,
                   sentPos = position.sentence ))
 
-              logger.debug (
+              logger.info (
                 s"** adding word:$word dpos:${position.document} tpos:$textPos token:$token " +
                   s" ppos:${position.paragraph} spos:${position.sentence}")
 

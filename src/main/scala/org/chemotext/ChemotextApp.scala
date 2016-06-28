@@ -89,10 +89,10 @@ object ChemotextApp {
       chemotextConfig,
       formChemotextConfigPath (chemotextConfig))
 
-    logger.info (s"appName        : $appName")
-    logger.info (s"chemotextConfig : $chemotextConfig")
-    logger.info (s"tmChemConf     : $tmChemConf")
-    logger.info (s"ctdConfig      : $ctdConfig")
+    logger.info (s"appName         : $appName")
+    logger.info (s"chemotextConfig : ${JSONUtils.writeString(chemotextConfig)}")
+    logger.info (s"tmChemConf      : ${JSONUtils.writeString(tmChemConf)}")
+    logger.info (s"ctdConfig       : ${JSONUtils.writeString(ctdConfig)}")
 
     // Connect to Spark
     val conf = new SparkConf().setAppName (appName)

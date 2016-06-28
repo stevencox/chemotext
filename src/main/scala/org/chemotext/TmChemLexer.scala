@@ -35,12 +35,17 @@ case class TmChemLexerConf (
   dictionaryPath : String)
 
 object TmChemLexer {
+  val logger = LoggerFactory.getLogger("TmChemLexer(Obj)[Banner]")
   var instance : TmChemLexer = null
   def getInstance (conf : TmChemLexerConf) = {
     if (instance == null) {
       instance = new TmChemLexer (conf)
     }
     instance
+  }
+  def invalidate () = {
+    logger.info ("Invalidating TmChemLexer object *********************************************************************")
+    instance = null
   }
 }
 
@@ -55,17 +60,49 @@ class TmChemLexer (conf : TmChemLexerConf) extends Lexer {
   val localConfig = config.configurationAt(classOf[BANNER].getPackage().getName())
   val modelFileName = localConfig.getString("modelFilename")
 
+  /*
   logger.debug (s"Creating tagger with modelFileName=$modelFileName")
   val modelFileStream = new File(modelFileName)
   val lemmatiser = BANNER.getLemmatiser (config)
   val posTagger = BANNER.getPosTagger (config)
   val cacheFile = Collections.singletonList(conf.cacheFileName)
-  val tagger = CRFTagger.load (modelFileStream, lemmatiser, posTagger, cacheFile)
+  var tagger = CRFTagger.load (modelFileStream, lemmatiser, posTagger, cacheFile)
   val dataSet = BANNER.getDataset (config)
 
   logger.debug (s"Creating tokenizer")
   val tokenizer = BANNER.getTokenizer(config)
   val dictionary = loadDictionary (conf.dictionaryPath)
+   */
+  logger.debug (s"Creating tagger with modelFileName=$modelFileName")
+  var modelFileStream = new File(modelFileName)
+  var lemmatiser = BANNER.getLemmatiser (config)
+  var posTagger = BANNER.getPosTagger (config)
+  var cacheFile = Collections.singletonList(conf.cacheFileName)
+  var tagger = CRFTagger.load (modelFileStream, lemmatiser, posTagger, cacheFile)
+  var dataSet = BANNER.getDataset (config)
+
+  logger.debug (s"Creating tokenizer")
+  var tokenizer = BANNER.getTokenizer(config)
+  var dictionary = loadDictionary (conf.dictionaryPath)
+
+  def init () = {
+    logger.info (">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> RESETTING LEXER <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<")
+    //tagger = CRFTagger.load (modelFileStream, lemmatiser, posTagger, cacheFile)
+
+    logger.debug (s"Creating tagger with modelFileName=$modelFileName")
+    modelFileStream = new File(modelFileName)
+    lemmatiser = BANNER.getLemmatiser (config)
+    posTagger = BANNER.getPosTagger (config)
+    cacheFile = Collections.singletonList(conf.cacheFileName)
+    tagger = CRFTagger.load (modelFileStream, lemmatiser, posTagger, cacheFile)
+    dataSet = BANNER.getDataset (config)
+
+    logger.debug (s"Creating tokenizer")
+    tokenizer = BANNER.getTokenizer(config)
+    dictionary = loadDictionary (conf.dictionaryPath)
+  }
+
+
 
   def changeType (sentences : List[Sentence]) = {
     sentences.foreach { sentence =>
@@ -182,6 +219,7 @@ class TmChemLexer (conf : TmChemLexerConf) extends Lexer {
 16/06/25 14:04:30 INFO TmChemLexer[Banner]: REJECTED: methylated dinucleotides (5-cpg-3)
 16/06/25 14:04:31 INFO TmChemLexer[Banner]: REJECTED: 6-hydroxyl kaempferol 3-0 arabinoglucoside
    */
+  var rejectedCount = 0
   def findTokens (
     sentence : String,
     features : ListBuffer[WordFeature]) : Unit =
@@ -213,15 +251,21 @@ class TmChemLexer (conf : TmChemLexerConf) extends Lexer {
             //logger.info (s"----------> word: $word, index: $index, sent: [$sentence]")
 
             features.add (new WordFeature (
-                word    = word,
-                docPos  = textPos, //position.document + textPos,
-                paraPos = position.paragraph,
-                sentPos = position.sentence))
+              word    = word,
+              docPos  = textPos, //position.document + textPos,
+              paraPos = position.paragraph,
+              sentPos = position.sentence))
 
-             val p = position
-             logger.debug (s"** adding word:$word dpos:${p.document} tpos:$textPos ppos:${p.paragraph} spos:${p.sentence}")
+            val p = position
+            logger.debug (s"** adding word:$word dpos:${p.document} tpos:$textPos ppos:${p.paragraph} spos:${p.sentence}")
+            rejectedCount = 0
 	  } else {
             logger.info (s"REJECTED: $word")
+            rejectedCount += 1
+            if (rejectedCount > 5) {
+              init ()
+              rejectedCount = 0
+            }
           }
         }
         position.sentence += 1
@@ -229,8 +273,9 @@ class TmChemLexer (conf : TmChemLexerConf) extends Lexer {
       }
     } catch {
       case e: Exception =>
-        e.printStackTrace ()
-        logger.error (s"Error normalizing [$capitalSentence]")
+        e.printStackTrace (java.lang.System.out)
+        init ()
+        rejectedCount = 0
     }
   }
 
@@ -265,3 +310,29 @@ object TmChemLexerApp {
   }
 
 }
+
+
+/*
+16/06/27 14:24:29 INFO TmChemLexer[Banner]: ----------> word: fullerenes, index: 58, sent: [nfas with lower electron affinities
+than the archetypical fullerenes have successfully been used in conjunction
+with wide bandgap donors to enhance the open-circuit voltage.]
+16/06/27 14:24:29 INFO TmChemLexer[Banner]: REJECTED: (604397)
+16/06/27 14:24:29 INFO TmChemLexer[Banner]: ----------> word: poly[4,8-bis(5-(2-ethylhexyl)thiophen-2-yl)benzo[1,2-b;4,5-b']dithiophene-2,6-diyl-alt-(4-(2-ethylhexanoyl)-thieno[3,4-b]thiophene-)-2-6-diyl), index: 0, sent: [poly[4,8-bis(5-(2-ethylhexyl)thiophen-2-yl)benzo[1,2-b;4,5-b']dithiophene-2,6-diyl-alt-(4-(2-ethylhexanoyl)-thieno[3,4-b]thiophene-)-2-6-diyl)]]
+16/06/27 14:24:29 INFO TmChemLexer[Banner]: ----------> word: poly[4,8-bis(5-(2-ethylhexyl)thiophen-2-yl)benzo[1,2-b;4,5-b]dithiophene-2,6- 157 diyl-alt-(4-(2-ethylhexyl)-3-fluorothieno[3,4-b]thiophene-)-2-
+158 carboxylate-26-diyl), index: 0, sent: [poly[4,8-bis(5-(2-ethylhexyl)thiophen-2-yl)benzo[1,2-b;4,5-b]dithiophene-2,6- 157 diyl-alt-(4-(2-ethylhexyl)-3-fluorothieno[3,4-b]thiophene-)-2-
+158 carboxylate-26-diyl)]]
+16/06/27 14:24:29 INFO TmChemLexer[Banner]: ----------> word: poly[dithieno[2,3-d:2,3-d]benzo[1,2-b:4,5-b]dithiophene-co-1,3-bis(thiophen-2-yl)-benzo-[1,2-c:4,5-c]dithiophene-4,8-dione, index: 0, sent: [poly[dithieno[2,3-d:2,3-d]benzo[1,2-b:4,5-b]dithiophene-co-1,3-bis(thiophen-2-yl)-benzo-[1,2-c:4,5-c]dithiophene-4,8-dione]]
+16/06/27 14:24:29 INFO TmChemLexer[Banner]: REJECTED: poly[4,8-bis(5-(2-
+171 ethylhexyl)thiophen-2-yl)benzo[1,2-b;4,5-b]dithiophene-2,6- 172 diyl-alt-(4-(2-ethylhexyl)-3-fluorothieno[3,4-b]thiophene)-2-
+173 carboxylate-2,6-diyl]
+16/06/27 14:24:29 INFO TmChemLexer[Banner]: ----------> word: poly[(5,6-difluoro-2,1,3-benzothiadiazol-4,7-diyl)-alt-(3,3'''-di(2-decyltetradecyl)-2,2';5',2'';5'',2'''-quaterthiophen-5,5'''-diyl)], index: 0, sent: [poly[(5,6-difluoro-2,1,3-benzothiadiazol-4,7-diyl)-alt-(3,3'''-di(2-decyltetradecyl)-2,2';5',2'';5'',2'''-quaterthiophen-5,5'''-diyl)].]
+16/06/27 14:24:29 INFO TmChemLexer[Banner]: ----------> word: poly[n-(2-hexyldodecyl)-2,2-bithiophene-3,3-dicarboximide-alt-5,5-(2,5-bis(3-decylthiophen-2-yl)-thiophene), index: 0, sent: [poly[n-(2-hexyldodecyl)-2,2-bithiophene-3,3-dicarboximide-alt-5,5-(2,5-bis(3-decylthiophen-2-yl)-thiophene)].]
+16/06/27 14:24:29 INFO TmChemLexer[Banner]: ----------> word: poly[(4,4'-bis(3-(2-ethylhexyl)dithieno[3,2-b:2,3-d]silole)-2,6-diyl-alt-(2,5-bis(3-(2-ethylhexyl)thiophen-2yl)thiazolo[5,4-d]thiazole, index: 0, sent: [poly[(4,4'-bis(3-(2-ethylhexyl)dithieno[3,2-b:2,3-d]silole)-2,6-diyl-alt-(2,5-bis(3-(2-ethylhexyl)thiophen-2yl)thiazolo[5,4-d]thiazole)].]
+16/06/27 14:24:29 INFO TmChemLexer[Banner]: ----------> word: poly[2-methoxy-5-(2-ethylhexyloxy)-1,4-phenylenevinylene], index: 0, sent: [poly[2-methoxy-5-(2-ethylhexyloxy)-1,4-phenylenevinylene].]
+16/06/27 14:24:29 INFO TmChemLexer[Banner]: ----------> word: poly[(4,8-bis-(2-ethylhexyloxy)-benzo(1,2-b:4,5-b)dithiophene)-2,6-diyl-alt-(4-(2-ethylhexyl)-3-fluorothieno[3,4-b]thiophene-)-2-carboxylate-2-6-diyl)], index: 0, sent: [poly[(4,8-bis-(2-ethylhexyloxy)-benzo(1,2-b:4,5-b)dithiophene)-2,6-diyl-alt-(4-(2-ethylhexyl)-3-fluorothieno[3,4-b]thiophene-)-2-carboxylate-2-6-diyl)].]
+16/06/27 14:24:29 INFO Chemotext2: @-article: /Users/scox/dev/starshome/var/chemotext/pubmed/articles/Accid_Anal_Prev/Accid_Anal_Prev_2011_May_43(3)_1062-1067.fxml
+[Stage 6:>                                                          (0 + 2) / 6]16/06/27 14:24:36 INFO TmChemLexer[Banner]: ----------> word: remazol, index: 43, sent: [in the present study, biotransformation of remazol orange 3r (ro3r) was studied using well-known bacterial isolate pseudomonas aeruginosa strain bch.]
+16/06/27 14:24:36 INFO TmChemLexer[Banner]: ----------> word: veratryl alcohol, index: 21, sent: [laccase, tyrosinase, veratryl alcohol oxidase and dcip reductase were observed in the cells obtained after decolorization of ro3r, which supports their role in decolorization.]
+16/06/27 14:24:36 INFO TmChemLexer[Banner]: REJECTED: n-(7 amino 8 hydroxy-napthalen-2yl) actamide
+
+ */

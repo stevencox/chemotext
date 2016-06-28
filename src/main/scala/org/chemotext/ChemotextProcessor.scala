@@ -99,7 +99,9 @@ object ChemotextProcessor {
     val ABC = article.AB.flatMap { ab =>
       article.BC.map { bc =>
         if (ab.R.equals (bc.L)) {
-          logger.debug (s" ab/bc => ${ab.L} ${ab.R} ${bc.L} ${bc.R}")
+          if (logger.isDebugEnabled ()) {
+            logger.debug (s" ab/bc => ${ab.L} ${ab.R} ${bc.L} ${bc.R}")
+          }
           Triple ( ab.L, ab.R, bc.R )
         } else {
           Triple ( null, null, null )
@@ -170,7 +172,9 @@ object ChemotextProcessor {
       R.map { right =>
         val distance = math.abs (left.docPos - right.docPos).toDouble
         if ( distance < threshold && distance > 0 ) {
-          logger.debug (s"cooccurring: $left._1 and $right._1 code:$code distance:$distance")
+          if (logger.isDebugEnabled ()) {
+            logger.debug (s"cooccurring: $left._1 and $right._1 code:$code distance:$distance")
+          }
           Binary (
             id       = UniqueID.inc (),
             L        = left.word,
@@ -195,10 +199,12 @@ object ChemotextProcessor {
     val meshXML = config.chemotextConfig.meshXML
     val dataHome = config.chemotextConfig.dataHome
     val vocab = VocabFactory.getVocabulary (dataHome, meshXML)
-    logger.debug (s"""Sample vocab:
+    if (logger.isDebugEnabled ()) {
+      logger.debug (s"""Sample vocab:
          A-> ${vocab.A.slice (1, 10)}...
          B-> ${vocab.B.slice (1, 10)}...
          C-> ${vocab.C.slice (1, 10)}...""")
+    }
     logger.info (s"@-article: ${config.article}")
     var position = Position ()
     val paraBuf = new ListBuffer [Paragraph] ()
@@ -235,13 +241,13 @@ object ChemotextProcessor {
     } catch {
       case e: Exception =>
         logger.error (s"Error in quantify article  $e")
-        e.printStackTrace ()
+        //e.printStackTrace ()
     }
     QuantifiedArticle (
       fileName   = config.article.replaceAll (".*/", ""),
       date       = date,
       id         = id,
-      generator  = "ChemoText2[Scala]",
+      generator  = "ChemoText2",
       raw        = rawBuf.toString,
       paragraphs = paraBuf.toList,
       A          = A,
@@ -265,9 +271,9 @@ object ChemotextProcessor {
     buf.toList
   }
 
+  val sentenceSegmenter = new SentenceSegmenter ()
   def getSentences (text : String) = {
     val buf = new ListBuffer[String] ()
-    val sentenceSegmenter = new SentenceSegmenter ()
     val sentences = sentenceSegmenter.segment (text)
     sentences.foreach { sentence =>
       buf += sentence.toLowerCase ()
@@ -437,6 +443,13 @@ object ChemotextProcessor {
       // Cache the extended vocabulary.
       VocabFactory.writeJSON (chemotextConfig.dataHome, vocab)
     }
+    if (logger.isDebugEnabled ()) {
+      logger.debug (s"""
+           A=>(${vocab.A.slice(0, 20)}...)
+           B=>(${vocab.B.slice(0, 20)}...)
+           C=>(${vocab.C.slice(0, 20)}...)
+           """.stripMargin)
+    }
     vocab
   }
 
@@ -549,11 +562,13 @@ object ChemotextProcessor {
       abPredicted.collect().foreach { x =>
         logger.info (s"ab binary predicted: $x")
       }
-      bcBinaryFacts.foreach { x =>
-        logger.debug (s"bc binary in ctd: $x")
-      }
-      abBinaryFacts.foreach { x =>
-        logger.debug (s"ab binary in ctd: $x")
+      if (logger.isDebugEnabled ()) {
+        bcBinaryFacts.foreach { x =>
+          logger.debug (s"bc binary in ctd: $x")
+        }
+        abBinaryFacts.foreach { x =>
+          logger.debug (s"ab binary in ctd: $x")
+        }
       }
     }
     logger.info (s" ab predicted count:       ${abPredicted.count}")
@@ -597,7 +612,7 @@ object ChemotextProcessor {
           lexerConf       = lexerConf))
     }.filter { p =>
       p != null
-    }.cache ()
+    } //.cache ()
   }
 
   def execute (
@@ -609,7 +624,6 @@ object ChemotextProcessor {
     AC              : RDD[Fact]) =
   {
     logger.debug (s"** Chemotext execute: Analyzing ${articlePaths.count} articles.")
-    //val vocab = extendVocabulary (chemotextConfig, AB, BC, AC)
     val articles = generatePairs (articlePaths, chemotextConfig, lexerConf)
     val annotatedArticles = annotateBinaries (articles, AB, BC, AC)
     calculateTriples (annotatedArticles, chemotextConfig.outputPath)

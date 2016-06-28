@@ -16,6 +16,7 @@ import java.io.IOException
 import java.io.PrintWriter
 import java.io.Reader
 import java.io.Serializable
+import java.io.StringWriter
 import java.nio.file.{Paths, Files}
 import org.json4s._
 import org.json4s.JsonAST._
@@ -101,6 +102,40 @@ object JSONUtils {
     json
   }
 
+  def writeJSONToWriter [A <: AnyRef: Manifest](obj : A, writer : PrintWriter) = {
+    try {
+      implicit val formats = Serialization.formats(NoTypeHints)
+      writer.println (writePretty(obj))
+      writer.flush ()
+    } catch {
+      case e : IOException =>
+        logger.error (s"Error writing json: $e")
+    } finally {
+      writer.close ()
+    }
+  }
+  def writeString [A <: AnyRef: Manifest](obj : A) = {
+    val stringWriter = new StringWriter ()
+    val writer = new PrintWriter (new BufferedWriter (stringWriter))
+    writeJSONToWriter (obj, writer)
+    stringWriter.toString ()
+  }
+  def writeJSON [A <: AnyRef: Manifest](obj : A, jsonPath : String) = {
+    val startTime = Platform.currentTime
+    var writer : PrintWriter = null
+    try {
+      writer = new PrintWriter(new BufferedWriter (new FileWriter (jsonPath)))
+      writeJSONToWriter (obj, writer)
+    } catch {
+      case e : IOException =>
+        logger.error (s"Error writing json: $e")
+    } finally {
+      writer.close ()
+    }
+    val endTime = Platform.currentTime
+    logger.debug (s"Wrote json in ${(endTime - startTime) / 1000} seconds.")
+  }
+/*
   def writeJSON [A <: AnyRef: Manifest](obj : A, jsonPath : String) = {
     val startTime = Platform.currentTime
     implicit val formats = Serialization.formats(NoTypeHints)
@@ -111,7 +146,7 @@ object JSONUtils {
       out.flush ()
     } catch {
       case e : IOException =>
-        logger.error (s"Error writing json mesh vocab: $e")
+        logger.error (s"Error writing json: $e")
         out.close ()
     } finally {
       out.close ()
@@ -119,6 +154,8 @@ object JSONUtils {
     val endTime = Platform.currentTime
     logger.debug (s"Wrote json in ${(endTime - startTime) / 1000} seconds.")
   }
+ */
+
 
 /*
   def toManifest[T:TypeTag]: Manifest[T] = {

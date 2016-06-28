@@ -1,6 +1,25 @@
 #!/bin/bash
 
-# Started tmchem run: 2016-06-02T13:21:38-0400
+######################################################################
+##
+## Run Chemotext in a variety of settings.
+##   dev: A small run in a local dev environment.
+##   test: Similar to dev but with test data.
+##   prod: The Stars Mesos cluster
+##   hatteras: Slurm
+##
+## Preconditions:
+##
+##   STARS_HOME must be set and configured correctly.
+##
+## Usage: bin/sub --env=prod --chemlex=mesh --app=ct2 --out=mesh.full 
+##
+##    --env: Select the environment and parameters to use
+##    --chemlex: Select the chemical lexical analyzer (MeSH | tmChem)
+##    --app: The application to run ct2|ct1|eval|kinase
+##    --out: Suffix of the output directory
+##
+#######################################################################
 
 set -x
 
@@ -10,10 +29,6 @@ if [ -z "$STARS_HOME" ]; then
 fi
 
 echo STARS_HOME: $STARS_HOME
-#source $STARS_HOME/app/evry/conf/env.sh
-#echo $SPARK_CLASSPATH
-#cat $SPARK_HOME/conf/spark-env.sh > b
-#exit 0
 
 env=test
 app=ct2
@@ -32,13 +47,13 @@ dev () {
  }
 test () {
     dev
-    SLICES=100
+    SLICES=1000
     DATA_HOME=$STARS_HOME/app/chemotext/data
     TMCHEM_HOME=$APP_HOME/data/tmchem
     SAMPLESIZE=1
 }
 prod () {
-    SAMPLESIZE=1 #0.02
+    SAMPLESIZE=1
     SLICES=10
     ARG_MESOS_MASTER=
     ARG_EXECUTOR_MEMORY=220G
@@ -115,9 +130,9 @@ init () {
     MESHXML=$DATA_HOME/mesh/desc2016_2.xml
     TMCHEM_HOME=$DATA_HOME/tmchem
     VENV=$STARS_HOME/venv
-    MEDLINE_DATA=$DATA_HOME/pubmed/medline #/medline16n0736.xml
-    DISTANCETHRESHOLD=100
-    CHEMLEX=tmchem #mesh
+    MEDLINE_DATA=$DATA_HOME/pubmed/medline
+    DISTANCETHRESHOLD=800
+    CHEMLEX=tmchem
 }
 
 config () {
@@ -167,6 +182,7 @@ main () {
             --out\=*)
                 out=$(getarg $arg)
                 OUTPUTPATH=$DATA_HOME/output.$out
+                shift;;
         esac
     done
     execute
@@ -175,7 +191,6 @@ main () {
 spark () {
     SPARK_CSV=com.databricks:spark-csv_2.10:1.4.0
     SPARK_XML=com.databricks:spark-xml_2.10:0.3.3
-    #proxy
     $SPARK_HOME/bin/spark-submit \
 	$ARG_MESOS_MASTER \
 	--executor-cores 64 \
@@ -212,11 +227,11 @@ execute_ct2 () {
 }
 
 execute_ct1 () {
-    ARG_EXECUTOR_MEMORY=10G
-    ARG_DRIVER_MEMORY=4G
-    ARG_TOTAL_EXECUTOR_CORES=16
-    ARG_MAX_RESULT_SIZE=1G
-    export MESOS_MASTER=mesos://stars-c1.edc.renci.org:5050
+    #ARG_EXECUTOR_MEMORY=10G
+    #ARG_DRIVER_MEMORY=4G
+    #ARG_TOTAL_EXECUTOR_CORES=16
+    #ARG_MAX_RESULT_SIZE=1G
+    #export MESOS_MASTER=mesos://stars-c1.edc.renci.org:5050
     spark \
 	--py-files python/chemotext_util.py \
 	$APP_HOME/python/medline.py \
@@ -226,11 +241,11 @@ execute_ct1 () {
 	--input $MEDLINE_DATA
 }
 execute_pmid () {
-    ARG_EXECUTOR_MEMORY=5G
-    ARG_DRIVER_MEMORY=6G
-    ARG_TOTAL_EXECUTOR_CORES=5
-    ARG_MAX_RESULT_SIZE=5G
-    export MESOS_MASTER=mesos://stars-c1.edc.renci.org:5050
+    #ARG_EXECUTOR_MEMORY=5G
+    #ARG_DRIVER_MEMORY=6G
+    #ARG_TOTAL_EXECUTOR_CORES=5
+    #ARG_MAX_RESULT_SIZE=5G
+    #export MESOS_MASTER=mesos://stars-c1.edc.renci.org:5050
     spark \
 	--py-files python/chemotext_util.py \
 	$APP_HOME/python/pread.py \
@@ -266,12 +281,12 @@ execute_w2v () {
 }
 
 execute_kinase () {
-    INPUTPATH=$STARS_HOME/var/chemotext/output.tmchem
-    PROQINASEDB=$STARS_HOME/var/chemotext/proqinase/kinase_synonyms.txt
-    INTACTDB=$STARS_HOME/var/chemotext/intact/idA_P04637.txt
-    MESH_KINASE_SYNONYMS=$APP_HOME/kinases.json
-    KIN2PROT=$STARS_HOME/var/chemotext/kinase/kinase2uniprot.json
-    W2V_MODEL=$DATA_HOME/w2v.model
+    #INPUTPATH=$STARS_HOME/var/chemotext/output.tmchem
+    #PROQINASEDB=$STARS_HOME/var/chemotext/proqinase/kinase_synonyms.txt
+    #INTACTDB=$STARS_HOME/var/chemotext/intact/idA_P04637.txt
+    #MESH_KINASE_SYNONYMS=$APP_HOME/kinases.json
+    #KIN2PROT=$STARS_HOME/var/chemotext/kinase/kinase2uniprot.json
+    #W2V_MODEL=$DATA_HOME/w2v.model
     spark \
         --py-files python/chemotext_util.py \
         $APP_HOME/python/kinase.py \
