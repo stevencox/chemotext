@@ -56,6 +56,15 @@ def count_binaries (article_path, input_dir):
             false_positive = false_positive + 1
     return Quant (before, not_before, false_positive)
 
+
+def load_reference_binaries (sqlContext, ctdRef, L_index, R_index):
+    return sqlContext.read.                 \
+        format('com.databricks.spark.csv'). \
+        options(comment='#').               \
+        load(ctdRef).rdd.                   \
+        map (lambda a : (a["C{0}".format (L_index)].lower (),
+                         a["C{0}".format (R_index)].lower ()) )
+
 def count_false_negatives_by_type (sqlContext, ctdRef, articles, L_index, R_index, tuple_type):
     '''
     Read a CSV formatted CTD file into a Spark RDD.
@@ -70,13 +79,15 @@ def count_false_negatives_by_type (sqlContext, ctdRef, articles, L_index, R_inde
     :param R_index: Index of the right term in this CTD file.
     :param tupleType: AB/BC/AC
     '''
+    ref = load_reference_binaries (sqlContext, ctdRef, L_index, R_index)
+    '''
     ref = sqlContext.read.                    \
           format('com.databricks.spark.csv'). \
           options(comment='#').               \
           load(ctdRef).rdd.                   \
           map (lambda a : (a["C{0}".format (L_index)].lower (),
                            a["C{0}".format (R_index)].lower ()) )
-
+    '''
     generated = articles.                                     \
                 flatMap (lambda a : a.__dict__[tuple_type] ). \
                 filter  (lambda a : a.fact ).                 \
@@ -137,7 +148,62 @@ def evaluate (conf):
     else:
         logger.info ("precision/recall can't be calculated. true_positives: {0}".format (true_positives))
 
-def evaluate_2 (conf):
+
+#-----------------------------------------------------------------------------------------------
+#-- V2.0 -
+#-----------------------------------------------------------------------------------------------
+
+def get_binaries (article_path):
+    logger = LoggingUtil.init_logging (__file__)
+    logger.info ("Article: @-- {0}".format (article_path))
+    article = SUtil.read_article (article_path)
+    return article.AB + article.BC + article.AC
+
+def get_reference_assertions (sc, conf, T):
+    sqlContext = SQLContext(sc)
+    return sc.union ([ load_reference_binaries (sqlContext, conf.ctdAB, 0, 3),
+                       load_reference_binaries (sqlContext, conf.ctdBC, 0, 2),
+                       load_reference_binaries (sqlContext, conf.ctdAC, 0, 3) ]). \
+        flatMap (lambda a : a).cache ()
+    
+def get_detected_assertions (sc, conf, T):
+    articles = glob.glob (os.path.join (conf.input_dir, "*fxml.json"))
+    articles = sc.parallelize (articles [0:200])
+    return articles.flatMap (lambda article : get_binaries (article)).cache ()
+
+class CT2Params (object):
+    def __init__(self, title, distanceThreshold):
+        self.distanceThreshold = distanceThreshold
+
+def get_parameter_sets ():
+    return [
+        CT2Params ("First-Run", 100),
+        CT2Params ("Second-Run", 500),
+        CT2Params ("Third-Run", 800)
+    ]
+
+def core_strength (t):
+    result = t
+    if isinstance (t, list):
+        doc, para, sent = t
+        result = \
+                 doc * math.exp ( -doc * (doc - 1)) + \
+                 para * math.exp ( -para * (para - 1)) + \
+                 sent * math.exp ( -sent * (sent - 1))
+    return result
+
+def calculate_assertion_strength (a, b):
+    # Tsda*e^(-Tsdf*(sd-1)) +Tpda*e^(-Tpdf*(pd-1))+Twda*e^(-Twdf*(wd-1))
+    print ("----------------------> {0} {1}".format (a, b))
+    return core_strength (a) + core_strength (b)
+        
+def calculate_canonical_assertions (assertions, parameters):
+    return assertions.                                                                               \
+        map (lambda a : ( "{0}->{1}".format (a.L, a.R) , [ a.docDist, a.paraDist, a.sentDist ] ) ).  \
+        reduceByKey (lambda x, y : calculate_assertion_strength (x, y)). \
+        map (lambda t : ( t[0], core_strength (t[1])))
+
+def evaluate_articles (conf):
     '''
     - Generate AS(j,)       // all reference assertions 
     - Generate AC(j,)       // all found assertions
@@ -148,15 +214,15 @@ def evaluate_2 (conf):
     - Generate a single plot of P,R,F across all TCi
     - Generate a single plot of NAC,NAS,MNAC, MNAS, SDNAC, SDNASacross all TCi
     '''
-    AS_j = generate_reference_assertions ()
-    AC_j = generate_detected_assertions ()
-    parameter_sets = []
-    for parameter_set in parameter_sets:
-        EACi_j = calculate_canonical_assertions_and_strengths (parameter_set)
-
-    # Tsda*e^(-Tsdf*(sd-1)) +Tpda*e^(-Tpdf*(pd-1))+Twda*e^(-Twdf*(wd-1))
-    strength = arg * math.exp ( -Tsdf * (sd - 1) )
-
+    logger.info ("Evaluating Chemotext2 output: {0}".format (conf.input_dir))
+    sc = SparkUtil.get_spark_context (conf)
+    parameter_sets = get_parameter_sets ()
+    for T in parameter_sets:
+        AS_j = get_reference_assertions (sc, conf, T)
+        AC_j = get_detected_assertions (sc, conf, T)
+        EACi_j = calculate_canonical_assertions (AC_j, T)
+        for a in EACi_j.collect ():
+            print "a> {0}".format (a)
 
 def main ():
     '''
@@ -178,7 +244,8 @@ def main ():
                          ctdAB          = args.ctdAB,
                          ctdBC          = args.ctdBC,
                          ctdAC          = args.ctdAC)
-    evaluate (conf)
+    #evaluate (conf)
+    evaluate_articles (conf)
 
 main ()
 

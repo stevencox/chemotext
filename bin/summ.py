@@ -28,7 +28,7 @@ def read_triples (obj):
         result = obj["ABC"]
     return result
 
-files = glob.glob (os.path.join (path, "*"))
+files = [ f for f in glob.glob (os.path.join (path, "*")) if not f.find ("Acta") > -1 ]
 for f in files:
     print f
     with open (f) as stream:
