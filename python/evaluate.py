@@ -6,6 +6,8 @@ import json
 import os
 import logging
 import math
+import numpy
+import re
 import sys
 import socket
 import time
@@ -157,7 +159,7 @@ def get_binaries (article_path):
     logger = LoggingUtil.init_logging (__file__)
     logger.info ("Article: @-- {0}".format (article_path))
     article = SUtil.read_article (article_path)
-    return article.AB + article.BC + article.AC
+    return article.AB + article.BC + article.AC # Tag each with an article id (pmid)
 
 def get_reference_assertions (sc, conf, T):
     sqlContext = SQLContext(sc)
@@ -186,43 +188,40 @@ def core_strength (t):
     result = t
     if isinstance (t, list):
         doc, para, sent = t
-        result = \
-                 doc * math.exp ( -doc * (doc - 1)) + \
+        result =                                         \
+                 doc  * math.exp ( -doc  * (doc - 1))  + \
                  para * math.exp ( -para * (para - 1)) + \
                  sent * math.exp ( -sent * (sent - 1))
     return result
 
 def calculate_assertion_strength (a, b):
-    # Tsda*e^(-Tsdf*(sd-1)) +Tpda*e^(-Tpdf*(pd-1))+Twda*e^(-Twdf*(wd-1))
-    print ("----------------------> {0} {1}".format (a, b))
     return core_strength (a) + core_strength (b)
         
-def calculate_canonical_assertions (assertions, parameters):
-    return assertions.                                                                               \
-        map (lambda a : ( "{0}->{1}".format (a.L, a.R) , [ a.docDist, a.paraDist, a.sentDist ] ) ).  \
-        reduceByKey (lambda x, y : calculate_assertion_strength (x, y)). \
+def calculate_equivalent_sets (assertions, parameters): # Needs to be "within an article". Add PMID to key.
+    return assertions.                                                                                                   \
+        map (lambda a : ( "{0}->{1} [pmid=>{2}]".format (a.L, a.R, a.pmid) , [ a.docDist, a.paraDist, a.sentDist ] ) ).  \
+        reduceByKey (lambda x, y : core_strength(x) + core_strength (y)).                                                \
         map (lambda t : ( t[0], core_strength (t[1])))
 
 def evaluate_articles (conf):
-    '''
-    - Generate AS(j,)       // all reference assertions 
-    - Generate AC(j,)       // all found assertions
-    - Generate parameter sets {TCi} for TC
-    -      For each TCi in TC
-    -          Collapse AC(j,) to generate EAC(j,) (See 1.2)
-    -          Compute evaluation metrics            (See 1.3)
-    - Generate a single plot of P,R,F across all TCi
-    - Generate a single plot of NAC,NAS,MNAC, MNAS, SDNAC, SDNASacross all TCi
-    '''
     logger.info ("Evaluating Chemotext2 output: {0}".format (conf.input_dir))
     sc = SparkUtil.get_spark_context (conf)
     parameter_sets = get_parameter_sets ()
+
+    pat = re.compile (r" \[.*")
     for T in parameter_sets:
-        AS_j = get_reference_assertions (sc, conf, T)
+        AS_j = get_reference_assertions (sc, conf, T) # Would be nice to use this somewehre
         AC_j = get_detected_assertions (sc, conf, T)
-        EACi_j = calculate_canonical_assertions (AC_j, T)
+        EACi_j = calculate_equivalent_sets (AC_j, T)
+
+        # Need some words about just what constitutes an equivalent set
+        Ek = EACi_j.map (lambda v : ( pat.sub ("", v[0]), v[1] ) )
+
         for a in EACi_j.collect ():
             print "a> {0}".format (a)
+
+        for k in Ek.collect ():
+            print "k> {0}".format (k)
 
 def main ():
     '''

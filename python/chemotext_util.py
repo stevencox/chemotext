@@ -43,7 +43,7 @@ class WordPosition(object):
             self.word, self.docPos, self.paraPos, self.sentPos)
 
 class Binary(object):
-    def __init__(self, id, L, R, docDist, paraDist, sentDist, code, fact, refs):
+    def __init__(self, id, L, R, docDist, paraDist, sentDist, code, fact, refs, pmid=-1):
         self.id = id
         self.L = L
         self.R = R
@@ -53,6 +53,7 @@ class Binary(object):
         self.code = code
         self.fact = fact
         self.refs = refs
+        self.pmid = pmid
     def __str__ (self):
         return """ id:{0}, L:{1}, R:{2}, docDist:{3}, paraDist:{4}, sentDist:{5}, code:{6}, fact:{7}, refs:{8}""".format (
             self.id, self.L, self.R, self.docDist, self.paraDist, self.sentDist, self.code, self.fact, self.refs)
@@ -138,7 +139,8 @@ class ArticleDecoder(json.JSONDecoder):
                     sentDist = i['sentDist'],
                     code = i['code'],
                     fact = fact,
-                    refs = refs))
+                    refs = refs,
+                    pmid   = obj['id']))
 
         triples = []
         for triple in obj['ABC']:

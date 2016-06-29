@@ -18,7 +18,7 @@ class PubMedArticleParser ( article : String ) {
   def getId () = {
     val pmid = (xml \\ "article-id").filter { node =>
       node.attribute ("pub-id-type").exists { pubIdType =>
-        pubIdType.text == "pmid"
+        pubIdType.text == "pmid" || pubIdType.text == "pmc"
       }
     }.text
     pmid
