@@ -8,6 +8,7 @@ import logging
 import math
 import numpy
 import re
+import shutil
 import sys
 import socket
 import time
@@ -22,6 +23,9 @@ from chemotext_util import LoggingUtil
 from chemotext_util import SerializationUtil as SUtil
 from chemotext_util import SparkUtil
 from pyspark.sql import SQLContext
+
+from pyspark.mllib.classification import LogisticRegressionWithLBFGS, LogisticRegressionModel
+from pyspark.mllib.regression import LabeledPoint
 
 logger = LoggingUtil.init_logging (__file__)
 
@@ -243,10 +247,28 @@ def evaluate_articles (conf):
     facts = get_facts (sc, conf)
     guesses = get_guesses (sc, conf)
     annotated = annotate (guesses, facts)
+
+    train_log_reg (sc, annotated)
+
+def train_log_reg (sc, annotated):
+    def label (b):
+        features = [ b.docDist, b.paraDist, b.sentDist ]
+        return LabeledPoint (1.0 if b.fact else 0.0, features)
+    labeled = annotated.map (label)
+    model = LogisticRegressionWithLBFGS.train (labeled)
+        
+    labelsAndPreds = labeled.map (lambda p: (p.label, model.predict(p.features)))
+    trainErr = labelsAndPreds.filter(lambda (v, p): v != p).count() / float(labeled.count())
+    print("Training Error = {0}".format (trainErr))
+
+    shutil.rmtree ("machine")
+    model.save(sc, "machine")
+    sameModel = LogisticRegressionModel.load(sc, "machine")
+
+def json_io ():
     with open ("machine.txt", "w") as stream:
         stream.write (json.dumps (annotated.collect (), cls=BinaryEncoder, indent=2))
 
-def read_training_set ():
     with open ("machine.txt", "r") as stream:
         decoder = BinaryDecoder ()
         for b in decoder.decode (stream.read ()):
