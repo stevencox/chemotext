@@ -248,7 +248,11 @@ def evaluate_articles (conf):
     guesses = get_guesses (sc, conf)
     annotated = annotate (guesses, facts)
 
-    annotated.saveAsTextFile ("annotated")
+    shutil.rmtree ("annotated")
+    shutil.rmtree ("machine")
+    annotated.\
+        map(lambda b : json.dumps (b, cls=BinaryEncoder)). \
+        saveAsTextFile ("annotated")
 
     train_log_reg (sc, annotated)
 
@@ -263,7 +267,6 @@ def train_log_reg (sc, annotated):
     trainErr = labelsAndPreds.filter(lambda (v, p): v != p).count() / float(labeled.count())
     print("Training Error = {0}".format (trainErr))
 
-    shutil.rmtree ("machine")
     model.save(sc, "machine")
     sameModel = LogisticRegressionModel.load(sc, "machine")
 
