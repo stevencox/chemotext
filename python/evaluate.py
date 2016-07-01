@@ -203,12 +203,16 @@ def get_article_guesses (article_path):
     logger.info ("Article: @-- {0}".format (article_path))
     article = SUtil.read_article (article_path)
     return article.AB + article.BC + article.AC
+def distance (b):
+    b.dist = 1000000 * b.paraDist + 100000 * b.sentDist + b.docDist
+    return b
 def get_guesses (sc, conf):
     articles = glob.glob (os.path.join (conf.input_dir, "*fxml.json"))
     articles = sc.parallelize (articles)
     return articles.\
         flatMap (lambda article : get_article_guesses (article)). \
-        map (lambda b : ( make_key (b.L, b.R, b.pmid), b ) )
+        map (lambda b : ( make_key (b.L, b.R, b.pmid), distance (b) ) ). \
+        reduceByKey (lambda x, y : x if x.dist < y.dist else x)
 
 def mark_binary (binary, fact=True):
     binary.fact = fact
@@ -233,7 +237,7 @@ def annotate (guesses, facts):
     trace_set (trace_level, "FPos", false_positive)
 
     false_negative = facts.subtractByKey (true_positive)
-    trace_set (trace_level, "FN", false_negative)
+    trace_set (trace_level, "FNeg", false_negative)
 
     return true_positive.\
         union (false_positive).\
