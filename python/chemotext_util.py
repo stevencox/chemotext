@@ -44,12 +44,6 @@ class WordPosition(object):
         return """WordPosition(word:{0}, docPos:{1}, paraPos:{2}, sentPos:{3})""".format (
             self.word, self.docPos, self.paraPos, self.sentPos)
 
-class Fact (object):
-    def __init__(self, L, R, pmid):
-        self.L = L
-        self.R = R
-        self.pmid = pmid
-
 class Binary(object):
     def __init__(self, id, L, R, docDist, paraDist, sentDist, code, fact, refs, pmid=-1):
         self.id = id
@@ -65,6 +59,13 @@ class Binary(object):
     def __str__ (self):
         return """ id:{0}, L:{1}, R:{2}, docDist:{3}, paraDist:{4}, sentDist:{5}, code:{6}, fact:{7}, refs:{8}, pmid:{9}""".format (
             self.id, self.L, self.R, self.docDist, self.paraDist, self.sentDist, self.code, self.fact, self.refs, self.pmid)
+
+class Fact (Binary):
+    def __init__(self, L, R, pmid):
+        super(Fact, self).__init__(0, L, R, 0, 0, 0, 0, True, [], pmid)
+#        self.L = L
+#        self.R = R
+#        self.pmid = pmid
 
 class BinaryEncoder(JSONEncoder):
     def default(self, obj):

@@ -174,15 +174,10 @@ def expand_ref_binaries (binary):
     result = []
     pmids = binary[2] if len(binary) > 1 else None
     if pmids:
-        pmid_list = pmids.split ("|")
-        if len(pmid_list) > 1:
-            for p in pmid_list:
-                f = Fact (L=binary[0], R=binary[1], pmid=p)
-                t = ( make_key(f.L, f.R, f.pmid), f ) 
-                result.append (t)
-        else:
-            f = Fact (L=binary[0], R=binary[1], pmid=pmid_list[0])
-            t = ( make_key (f.L, f.R, f.pmid), f ) 
+        pmid_list = pmids.split ("|") if "|" in pmids else [ pmids ]
+        for p in pmid_list:
+            f = Fact (L=binary[0], R=binary[1], pmid=p)
+            t = ( make_key(f.L, f.R, f.pmid), f ) 
             result.append (t)
     else:
         f = Fact ("L", "R", 0)
@@ -198,7 +193,7 @@ def get_facts (sc, conf):
     ]
     return sc.union (reference_binaries). \
         flatMap (expand_ref_binaries)
-    
+
 def get_article_guesses (article_path):
     logger = LoggingUtil.init_logging (__file__)
     logger.info ("Article: @-- {0}".format (article_path))
@@ -207,75 +202,38 @@ def get_article_guesses (article_path):
 def get_guesses (sc, conf):
     articles = glob.glob (os.path.join (conf.input_dir, "*fxml.json"))
     articles = sc.parallelize (articles)
-    return articles.flatMap (lambda article : get_article_guesses (article)).cache ()
-
-class CT2Params (object):
-    def __init__(self, title, distanceThreshold):
-        self.distanceThreshold = distanceThreshold
-def get_parameter_sets ():
-    return [
-        CT2Params ("First-Run", 100)#,
-#        CT2Params ("Second-Run", 500),
-#        CT2Params ("Third-Run", 800)
-    ]
-'''
-def strength (b):
-    result = b
-    if isinstance (b, Binary):
-        doc, para, sent = ( b.docDist, b.paraDist, b.sentDist )
-        result =                                         \
-                 doc  * math.exp ( -doc  * (doc  - 1)) + \
-                 para * math.exp ( -para * (para - 1)) + \
-                 sent * math.exp ( -sent * (sent - 1))
-    return result
-def calculate_assertion_strength (a, b):
-    return strength (a) + strength (b)
-def calculate_equivalent_sets (observed, T):
-    observed. \
-        map (lambda b : ( make_key (b.L, b.R, b.pmid), b ) ).   \
-        reduceByKey (lambda x, y : strength(x) + strength (y)). \
-        map (lambda x : ( x[0], strength (x[1]) ) )
-'''
+    return articles.\
+        flatMap (lambda article : get_article_guesses (article)). \
+        map (lambda b : ( make_key (b.L, b.R, b.pmid), b ) )
 
 def mark_binary (binary, fact=True):
     binary.fact = fact
     binary.refs = []
     return binary
-def annotate (guesses, facts):    
-    logger.info ("True positives...")
+def trace_set (trace_level, label, rdd):
+    if (logger.getEffectiveLevel() == trace_level):
+        for g in rdd.collect ():
+            print ("{0}> {1}->{2}".format (label, g[0], g[1]))
+def annotate (guesses, facts):
+    trace_level = logging.DEBUG
+    trace_set (trace_level, "Fact", facts)
+    trace_set (trace_level, "Guess", guesses)
 
-    trace = logging.DEBUG
-
-    if (logger.getEffectiveLevel() == trace):
-        for f in facts.filter (lambda f : f[0].find ('10,10-bis(4-pyridinylmethyl)-9(10h)') > -1 ).collect ():
-            print "fact-----------> {0}".format (f)
-
-    keyed_guesses = guesses. \
-                    map (lambda b : ( make_key (b.L, b.R, b.pmid), b ) )
-    if (logger.getEffectiveLevel() == trace):
-        for g in keyed_guesses.collect ():
-            print ("Guess> {0}->{1}".format (g[0], g[1]))
-
-    true_positive = keyed_guesses. \
+    true_positive = guesses. \
                     join (facts).                                        \
                     map (lambda b : ( b[0], mark_binary (b[1][0], fact=True) ))
-    if (logger.getEffectiveLevel() == trace):
-        for tp in true_positive.collect ():
-            print "TPos-> k: {0} b: {1}".format (tp[0], tp[1])
+    trace_set (trace_level, "TPos", true_positive)
 
-    false_positive = keyed_guesses.subtractByKey (true_positive). \
+    false_positive = guesses.subtractByKey (true_positive). \
                      map (lambda b : ( b[0], mark_binary (b[1], fact=False) ))
-    if (logger.getEffectiveLevel() == trace):
-        for fp in false_positive.collect ():
-            print "FPos-> k: {0} b: {1}".format (fp[0], fp[1])
+    trace_set (trace_level, "FPos", false_positive)
 
-    logger.info ("False negatives...")
     false_negative = facts.subtractByKey (true_positive)
-    if (logger.getEffectiveLevel() == trace):
-        for fn in false_negative.collect ():
-            print "FN>: {0}->{1}".format (fn[0], fn[1])
+    trace_set (trace_level, "FN", false_negative)
 
-    return true_positive.union (false_positive). \
+    return true_positive.\
+        union (false_positive).\
+        union (false_negative).\
         map (lambda v: v[1])
 
 def evaluate_articles (conf):
