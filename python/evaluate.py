@@ -248,6 +248,8 @@ def evaluate_articles (conf):
     guesses = get_guesses (sc, conf)
     annotated = annotate (guesses, facts)
 
+    annotated.saveAsTextFile ("annotated")
+
     train_log_reg (sc, annotated)
 
 def train_log_reg (sc, annotated):
