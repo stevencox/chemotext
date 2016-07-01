@@ -13,6 +13,9 @@ import socket
 import time
 import traceback
 from chemotext_util import Article
+from chemotext_util import BinaryEncoder
+from chemotext_util import BinaryDecoder
+from chemotext_util import Fact
 from chemotext_util import Quant
 from chemotext_util import EvaluateConf
 from chemotext_util import LoggingUtil
@@ -38,8 +41,8 @@ def count_binaries (article_path, input_dir):
     false_positive = 0
     pmids = SUtil.get_pmid_map (os.path.join (input_dir, "pmid_date.json"))
     binaries = article.AB + article.BC + article.AC
+    doc_date = SUtil.parse_date (article.date)
     for binary in binaries:
-        doc_date = SUtil.parse_date (article.date)
         if binary.fact:
             refs = binary.refs
             if refs:
@@ -155,73 +158,141 @@ def evaluate (conf):
 #-- V2.0 -
 #-----------------------------------------------------------------------------------------------
 
-def get_binaries (article_path):
+def make_key (L, R, pmid):
+    return "{0}->{1} i={2}".format (L, R, pmid)
+
+def load_facts (sqlContext, ctdRef, L_index, R_index, pmid_index):
+    return sqlContext.read.                                     \
+        format('com.databricks.spark.csv').                     \
+        options(comment='#').                                   \
+        load(ctdRef).rdd.                                       \
+        map (lambda a : (a["C{0}".format (L_index)].lower (),
+                         a["C{0}".format (R_index)].lower (),
+                         a["C{0}".format (pmid_index)] ))
+
+def expand_ref_binaries (binary):
+    result = []
+    pmids = binary[2] if len(binary) > 1 else None
+    if pmids:
+        pmid_list = pmids.split ("|")
+        if len(pmid_list) > 1:
+            for p in pmid_list:
+                f = Fact (L=binary[0], R=binary[1], pmid=p)
+                t = ( make_key(f.L, f.R, f.pmid), f ) 
+                result.append (t)
+        else:
+            f = Fact (L=binary[0], R=binary[1], pmid=pmid_list[0])
+            t = ( make_key (f.L, f.R, f.pmid), f ) 
+            result.append (t)
+    else:
+        f = Fact ("L", "R", 0)
+        t = ( make_key (f.L, f.R, f.pmid), f ) 
+        result.append (t)
+    return result
+def get_facts (sc, conf):
+    sqlContext = SQLContext(sc)
+    reference_binaries = [
+        load_facts (sqlContext, conf.ctdAB, 0, 3, 10),
+        load_facts (sqlContext, conf.ctdBC, 0, 2, 8),
+        load_facts (sqlContext, conf.ctdAC, 0, 3, 9)
+    ]
+    return sc.union (reference_binaries). \
+        flatMap (expand_ref_binaries)
+    
+def get_article_guesses (article_path):
     logger = LoggingUtil.init_logging (__file__)
     logger.info ("Article: @-- {0}".format (article_path))
     article = SUtil.read_article (article_path)
-    return article.AB + article.BC + article.AC # Tag each with an article id (pmid)
-
-def get_reference_assertions (sc, conf, T):
-    sqlContext = SQLContext(sc)
-    return sc.union ([ load_reference_binaries (sqlContext, conf.ctdAB, 0, 3),
-                       load_reference_binaries (sqlContext, conf.ctdBC, 0, 2),
-                       load_reference_binaries (sqlContext, conf.ctdAC, 0, 3) ]). \
-        flatMap (lambda a : a).cache ()
-    
-def get_detected_assertions (sc, conf, T):
+    return article.AB + article.BC + article.AC
+def get_guesses (sc, conf):
     articles = glob.glob (os.path.join (conf.input_dir, "*fxml.json"))
-    articles = sc.parallelize (articles [0:200])
-    return articles.flatMap (lambda article : get_binaries (article)).cache ()
+    articles = sc.parallelize (articles)
+    return articles.flatMap (lambda article : get_article_guesses (article)).cache ()
 
 class CT2Params (object):
     def __init__(self, title, distanceThreshold):
         self.distanceThreshold = distanceThreshold
-
 def get_parameter_sets ():
     return [
-        CT2Params ("First-Run", 100),
-        CT2Params ("Second-Run", 500),
-        CT2Params ("Third-Run", 800)
+        CT2Params ("First-Run", 100)#,
+#        CT2Params ("Second-Run", 500),
+#        CT2Params ("Third-Run", 800)
     ]
-
-def core_strength (t):
-    result = t
-    if isinstance (t, list):
-        doc, para, sent = t
+'''
+def strength (b):
+    result = b
+    if isinstance (b, Binary):
+        doc, para, sent = ( b.docDist, b.paraDist, b.sentDist )
         result =                                         \
-                 doc  * math.exp ( -doc  * (doc - 1))  + \
+                 doc  * math.exp ( -doc  * (doc  - 1)) + \
                  para * math.exp ( -para * (para - 1)) + \
                  sent * math.exp ( -sent * (sent - 1))
     return result
-
 def calculate_assertion_strength (a, b):
-    return core_strength (a) + core_strength (b)
-        
-def calculate_equivalent_sets (assertions, parameters): # Needs to be "within an article". Add PMID to key.
-    return assertions.                                                                                                   \
-        map (lambda a : ( "{0}->{1} [pmid=>{2}]".format (a.L, a.R, a.pmid) , [ a.docDist, a.paraDist, a.sentDist ] ) ).  \
-        reduceByKey (lambda x, y : core_strength(x) + core_strength (y)).                                                \
-        map (lambda t : ( t[0], core_strength (t[1])))
+    return strength (a) + strength (b)
+def calculate_equivalent_sets (observed, T):
+    observed. \
+        map (lambda b : ( make_key (b.L, b.R, b.pmid), b ) ).   \
+        reduceByKey (lambda x, y : strength(x) + strength (y)). \
+        map (lambda x : ( x[0], strength (x[1]) ) )
+'''
+
+def mark_binary (binary, fact=True):
+    binary.fact = fact
+    binary.refs = []
+    return binary
+def annotate (guesses, facts):    
+    logger.info ("True positives...")
+
+    trace = logging.DEBUG
+
+    if (logger.getEffectiveLevel() == trace):
+        for f in facts.filter (lambda f : f[0].find ('10,10-bis(4-pyridinylmethyl)-9(10h)') > -1 ).collect ():
+            print "fact-----------> {0}".format (f)
+
+    keyed_guesses = guesses. \
+                    map (lambda b : ( make_key (b.L, b.R, b.pmid), b ) )
+    if (logger.getEffectiveLevel() == trace):
+        for g in keyed_guesses.collect ():
+            print ("Guess> {0}->{1}".format (g[0], g[1]))
+
+    true_positive = keyed_guesses. \
+                    join (facts).                                        \
+                    map (lambda b : ( b[0], mark_binary (b[1][0], fact=True) ))
+    if (logger.getEffectiveLevel() == trace):
+        for tp in true_positive.collect ():
+            print "TPos-> k: {0} b: {1}".format (tp[0], tp[1])
+
+    false_positive = keyed_guesses.subtractByKey (true_positive). \
+                     map (lambda b : ( b[0], mark_binary (b[1], fact=False) ))
+    if (logger.getEffectiveLevel() == trace):
+        for fp in false_positive.collect ():
+            print "FPos-> k: {0} b: {1}".format (fp[0], fp[1])
+
+    logger.info ("False negatives...")
+    false_negative = facts.subtractByKey (true_positive)
+    if (logger.getEffectiveLevel() == trace):
+        for fn in false_negative.collect ():
+            print "FN>: {0}->{1}".format (fn[0], fn[1])
+
+    return true_positive.union (false_positive). \
+        map (lambda v: v[1])
 
 def evaluate_articles (conf):
     logger.info ("Evaluating Chemotext2 output: {0}".format (conf.input_dir))
     sc = SparkUtil.get_spark_context (conf)
-    parameter_sets = get_parameter_sets ()
 
-    pat = re.compile (r" \[.*")
-    for T in parameter_sets:
-        AS_j = get_reference_assertions (sc, conf, T) # Would be nice to use this somewehre
-        AC_j = get_detected_assertions (sc, conf, T)
-        EACi_j = calculate_equivalent_sets (AC_j, T)
+    facts = get_facts (sc, conf)
+    guesses = get_guesses (sc, conf)
+    annotated = annotate (guesses, facts)
+    with open ("machine.txt", "w") as stream:
+        stream.write (json.dumps (annotated.collect (), cls=BinaryEncoder, indent=2))
 
-        # Need some words about just what constitutes an equivalent set
-        Ek = EACi_j.map (lambda v : ( pat.sub ("", v[0]), v[1] ) )
-
-        for a in EACi_j.collect ():
-            print "a> {0}".format (a)
-
-        for k in Ek.collect ():
-            print "k> {0}".format (k)
+def read_training_set ():
+    with open ("machine.txt", "r") as stream:
+        decoder = BinaryDecoder ()
+        for b in decoder.decode (stream.read ()):
+            print b
 
 def main ():
     '''

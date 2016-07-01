@@ -47,7 +47,7 @@ dev () {
  }
 test () {
     dev
-    SLICES=1000
+    SLICES=1
     DATA_HOME=$STARS_HOME/app/chemotext/data
     TMCHEM_HOME=$APP_HOME/data/tmchem
     SAMPLESIZE=1
@@ -147,13 +147,15 @@ config () {
         OUTPUTPATH=$DATA_HOME/output.mesh.full
     fi
     INPUTPATH=$OUTPUTPATH
+#echo $INPUTPATH
+#exit 0
     mkdir -p $OUTPUTPATH
     export JAVA_OPTS="-Xmx5G -Xms5G"
     genTmChemConfig
 }
 
 execute () {
-    $env
+#    $env
     config
     cd $APP_HOME
     execute_${app}
@@ -172,6 +174,7 @@ main () {
 	        shift;;
 	    --env\=*)
 	        env=$(getarg $arg)
+                $env
 	        shift;;
             --chemlex\=*)
                 CHEMLEX=$(getarg $arg)
@@ -256,6 +259,7 @@ execute_pmid () {
 }
 
 execute_eval () {
+#    INPUTPATH=/Users/scox/dev/starshome/app/chemotext/data/output.mesh.2
     spark \
         --py-files python/chemotext_util.py \
         $APP_HOME/python/evaluate.py \

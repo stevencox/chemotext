@@ -9,6 +9,8 @@ import socket
 import time
 from pyspark.sql import SQLContext
 from pyspark.sql.types import *
+from json import JSONEncoder
+from json import JSONDecoder
 
 class LoggingUtil(object):
     @staticmethod
@@ -42,6 +44,12 @@ class WordPosition(object):
         return """WordPosition(word:{0}, docPos:{1}, paraPos:{2}, sentPos:{3})""".format (
             self.word, self.docPos, self.paraPos, self.sentPos)
 
+class Fact (object):
+    def __init__(self, L, R, pmid):
+        self.L = L
+        self.R = R
+        self.pmid = pmid
+
 class Binary(object):
     def __init__(self, id, L, R, docDist, paraDist, sentDist, code, fact, refs, pmid=-1):
         self.id = id
@@ -55,8 +63,35 @@ class Binary(object):
         self.refs = refs
         self.pmid = pmid
     def __str__ (self):
-        return """ id:{0}, L:{1}, R:{2}, docDist:{3}, paraDist:{4}, sentDist:{5}, code:{6}, fact:{7}, refs:{8}""".format (
-            self.id, self.L, self.R, self.docDist, self.paraDist, self.sentDist, self.code, self.fact, self.refs)
+        return """ id:{0}, L:{1}, R:{2}, docDist:{3}, paraDist:{4}, sentDist:{5}, code:{6}, fact:{7}, refs:{8}, pmid:{9}""".format (
+            self.id, self.L, self.R, self.docDist, self.paraDist, self.sentDist, self.code, self.fact, self.refs, self.pmid)
+
+class BinaryEncoder(JSONEncoder):
+    def default(self, obj):
+        # Convert objects to a dictionary of their representation
+        d = { '__class__':obj.__class__.__name__, 
+              '__module__':obj.__module__,
+              }
+        d.update(obj.__dict__)
+        return d
+
+class BinaryDecoder(JSONDecoder):
+    def __init__(self):
+        json.JSONDecoder.__init__(self, object_hook=self.dict_to_object)
+    def dict_to_object(self, d):
+        if '__class__' in d:
+            class_name = d.pop('__class__')
+            module_name = d.pop('__module__')
+            module = __import__(module_name)
+#            print 'MODULE:', module
+            class_ = getattr(module, class_name)
+#            print 'CLASS:', class_
+            args = dict( (key.encode('ascii'), value) for key, value in d.items())
+#            print 'INSTANCE ARGS:', args
+            inst = class_(**args)
+        else:
+            inst = d
+        return inst
 
 class KinaseBinary (Binary):
     def __init__(self, id, L, R, docDist, paraDist, sentDist, code, fact, refs, pmid, date, file_name):

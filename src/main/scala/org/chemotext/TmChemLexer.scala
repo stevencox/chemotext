@@ -36,16 +36,29 @@ case class TmChemLexerConf (
 
 object TmChemLexer {
   val logger = LoggerFactory.getLogger("TmChemLexer(Obj)[Banner]")
+  var threadLocal = new ThreadLocal[TmChemLexer] ()
+  def getInstance (conf : TmChemLexerConf) = {
+    var instance = threadLocal.get ()
+    if (instance == null) {
+      instance = new TmChemLexer (conf)
+      instance.init ()
+      threadLocal.set (instance)
+    }
+    instance
+  }
+
+/*
   var instance : TmChemLexer = null
   def getInstance (conf : TmChemLexerConf) = {
     if (instance == null) {
       instance = new TmChemLexer (conf)
     }
     instance
-  }
+ */
+
   def invalidate () = {
     logger.info ("Invalidating TmChemLexer object *********************************************************************")
-    instance = null
+    threadLocal.set (null) //instance = null
   }
 }
 
@@ -159,10 +172,7 @@ class TmChemLexer (conf : TmChemLexerConf) extends Lexer {
       }
       result = processedSentences.toList
     } catch {
-      case e: ConfigurationException =>
-        e.printStackTrace ()
-        logger.error (s"Unable to normalize string")
-      case e: java.io.StreamCorruptedException =>
+      case e: Exception =>
         e.printStackTrace ()
     }
     result
@@ -209,7 +219,7 @@ class TmChemLexer (conf : TmChemLexerConf) extends Lexer {
   // = 3
   // x = 4
   // 
-  val rejectPattern = new Regex ("^\\(\\d+\\)( \\w+)?$|^\\d+(\\.\\d)$?|^= .*$|^\\w+ = \\d$")
+  val rejectPattern = new Regex ("^\\(\\d+\\)( \\w+)?$|^\\d+(\\.\\d)$?|^= .*$|^\\w+ = \\d$|^.*doi:.*$")
   /*
 16/06/25 14:04:28 INFO TmChemLexer[Banner]: REJECTED: bis(3-pyridyl) porphyrin 1
 16/06/25 14:04:28 INFO TmChemLexer[Banner]: REJECTED: pyridyl cholate 3
@@ -234,20 +244,23 @@ class TmChemLexer (conf : TmChemLexerConf) extends Lexer {
           val word = mention.getText ().toLowerCase ()
           // If the word has been altered (normalized) by banner, then looking for it by index
           // literally will be not quite right. But in the greater scheme, it may be the best we
-          // can do since mentinon.getStart() doesn't do quite what we want.
+          // can do since mentinon.getStart() doesn't do quite what we want either.
 
           val index = sentence.indexOf (word)
           val textPos = position.text + index //mention.getStart ()
 	  
           // This ought to slow things down :(
+/*
           val valid = (
-            word.split (" ").length < 5 &&
+//            word.split (" ").length < 5 &&
               rejectPattern.findAllIn(word).length == 0 &&
 //              ! (word.contains (" =") || word.contains ("= ")) &&
 //              ! ( word.startsWith ("(") && word.endsWith (")") && word.length < 5 ) &&
               ! ( word.indexOf ("doi: ") > -1 )
           )
  	  if (valid) { //word.split(" ").length < 3) {
+ */
+          if (rejectPattern.findAllIn (word).length == 0) {
             //logger.info (s"----------> word: $word, index: $index, sent: [$sentence]")
 
             features.add (new WordFeature (

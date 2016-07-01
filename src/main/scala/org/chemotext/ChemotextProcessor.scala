@@ -240,8 +240,8 @@ object ChemotextProcessor {
       }
     } catch {
       case e: Exception =>
-        logger.error (s"Error in quantify article  $e")
-        //e.printStackTrace ()
+        //logger.error (s"Error in quantify article  $e")
+        e.printStackTrace ()
     }
     QuantifiedArticle (
       fileName   = config.article.replaceAll (".*/", ""),
@@ -255,7 +255,7 @@ object ChemotextProcessor {
       C          = C)
   }
 
-  def getSentences0 (text : String) = {
+  def getSentences (text : String) = {
     val buf = new ListBuffer[String] ()
     val boundary = BreakIterator.getSentenceInstance(Locale.ENGLISH)
     boundary.setText (text)
@@ -272,7 +272,7 @@ object ChemotextProcessor {
   }
 
   val sentenceSegmenter = new SentenceSegmenter ()
-  def getSentences (text : String) = {
+  def getSentences0 (text : String) = {
     val buf = new ListBuffer[String] ()
     val sentences = sentenceSegmenter.segment (text)
     sentences.foreach { sentence =>
