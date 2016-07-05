@@ -67,7 +67,8 @@ object ChemotextProcessor {
     sentDist  : Double,
     code      : Int,
     var fact  : Boolean = false,
-    var refs  : Array[String] = Array[String]()
+    var refs  : Array[String] = Array[String](),
+    uberDist  : Long = 0
   )
   case class Paragraph (
     sentences : List[String]
@@ -168,21 +169,25 @@ object ChemotextProcessor {
     code      : Int)
       : List[Binary] = 
   {
-    L.flatMap { left =>
+    var binaries = L.flatMap { left =>
       R.map { right =>
         val distance = math.abs (left.docPos - right.docPos).toDouble
         if ( distance < threshold && distance > 0 ) {
           if (logger.isDebugEnabled ()) {
             logger.debug (s"cooccurring: $left._1 and $right._1 code:$code distance:$distance")
           }
+          val paraDist = math.abs (left.paraPos - right.paraPos).toDouble
+          val sentDist = math.abs (left.sentPos - right.sentPos).toDouble
+          val uberDist = (1000000 * paraDist + 100000 * sentDist + distance).toLong
           Binary (
             id       = UniqueID.inc (),
             L        = left.word,
             R        = right.word,
             docDist  = distance,
-            paraDist = math.abs (left.paraPos - right.paraPos).toDouble,
-            sentDist = math.abs (left.sentPos - right.sentPos).toDouble,
-            code     = code)
+            paraDist = paraDist,
+            sentDist = sentDist,
+            code     = code,
+            uberDist = uberDist)
         } else {
           Binary ( UniqueID.inc (), null, null, 0.0, 0.0, 0.0, 0 )
         }
@@ -190,6 +195,36 @@ object ChemotextProcessor {
     }.filter { element =>
       element.docDist != 0
     }
+
+    /* Where multiple a->b pairs have been generated, we keep the instance with the shortest
+     distance and discard the rest for each unique a->b pair. */
+
+    if (logger.isDebugEnabled ()) {
+      binaries.foreach { b => logger.debug (s"B> ${b.L}->${b.R} ${b.uberDist}") }
+    }
+    val result = L.flatMap { l =>
+      R.map { r =>
+        var set = binaries.filter { b =>
+          b.L == l.word && b.R == r.word
+        }
+        var b : Binary = null
+        if (set.length > 0) {
+          b = set.reduceLeft {
+            (x : Binary, y : Binary) => if (x.uberDist.min (y.uberDist) == x.uberDist) x else y
+          }
+          if (logger.isDebugEnabled ()) {
+            logger.debug (s"  reduced--> $b")
+          }
+        }
+        b
+      }.filter { b => b != null }
+    }.distinct
+
+    if (logger.isDebugEnabled ()) {
+      result.foreach { b => logger.debug (s"R=> $b") }//${b.L}->${b.R} ${b.uberDist}") }
+    }
+
+    result
   }
 
   def quantifyArticle (config : QuantifierConfig) : QuantifiedArticle = {
