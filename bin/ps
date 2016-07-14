@@ -1,0 +1,15 @@
+#!/bin/bash
+
+#set -x
+set +x
+
+pid=$(ps -ef | grep java | grep datanucleus | grep -v grep | awk '{ print $2 }')
+if [ -z "$pid" ]; then
+    echo
+else
+    for p in $pid; do
+	ps -p $p -L -o pid,tid,psr,pcpu | sed -e "s,$, $(hostname),g"
+    done
+fi
+
+

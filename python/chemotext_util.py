@@ -253,8 +253,9 @@ class SparkConf(Conf):
         self.framework_name = framework_name
 
 class EvaluateConf(Conf):
-    def __init__(self, host, venv, framework_name, input_dir, ctdAB, ctdBC, ctdAC):
+    def __init__(self, host, venv, framework_name, input_dir, output_dir, ctdAB, ctdBC, ctdAC):
         super(EvaluateConf, self).__init__(host, venv, framework_name, input_dir)
+        self.output_dir = output_dir
         self.ctdAB = ctdAB
         self.ctdBC = ctdBC
         self.ctdAC = ctdAC

@@ -57,18 +57,6 @@ def analyze_medline (conf):
     times = spots.map (lambda s : broadcastPMID.value [str(s)])
     print times.collect ()
 
-    '''
-    start = time.time()
-    p = dict(map(lambda (k,v): (k, int(v)), p.iteritems()))
-    elapsed = time.time() - start
-    print ("TIME(convert): ------------> {0}".format (elapsed))
-
-    start = time.time()
-    print ("lookup: {0}".format (p["1"]))
-    elapsed = time.time() - start
-    print ("TIME(lookup): ------------> {0}".format (elapsed))
-    '''
-
 def main ():
     parser = argparse.ArgumentParser()
     parser.add_argument("--host",  help="Mesos master host")

@@ -54,16 +54,16 @@ test () {
 }
 prod () {
     SAMPLESIZE=1
-    SLICES=10
+    SLICES=100
     ARG_MESOS_MASTER=
-    ARG_EXECUTOR_MEMORY=220G
+    ARG_EXECUTOR_MEMORY=150G
     ARG_DRIVER_MEMORY=10G
     ARG_TOTAL_EXECUTOR_CORES=170
     ARG_MAX_RESULT_SIZE=15G
     ARG_DEFAULT_PARALLELISM=256
-    export MESOS_MASTER=mesos://$(hostname):5050
-    export MESOS_MASTER=mesos://stars-c0.edc.renci.org:5050
-#    export MESOS_MASTER=zk://stars-c0.edc.renci.org:2181/mesos
+#    export MESOS_MASTER=mesos://$(hostname):5050
+#    export MESOS_MASTER=mesos://stars-c1.edc.renci.org:5050
+    export MESOS_MASTER=zk://stars-c0.edc.renci.org:2181/mesos
     PROXY_SETTINGS='--conf "spark.driver.extraJavaOptions=-Dhttp.proxyHost=gateway.ad.renci.org -Dhttp.proxyPort=8080 -Dhttps.proxyHost=gateway.ad.renci.org -Dhttps.proxyPort=8080" '
     EXTRA_JAVA_OPTS="-Dhttp.proxyHost=gateway.ad.renci.org -Dhttp.proxyPort=8080 -Dhttps.proxyHost=gateway.ad.renci.org -Dhttps.proxyPort=8080"
 
@@ -192,13 +192,14 @@ main () {
 }
 
 spark () {
+    # --executor-cores 64 
     SPARK_CSV=com.databricks:spark-csv_2.10:1.4.0
     SPARK_XML=com.databricks:spark-xml_2.10:0.3.3
+    #--conf spark.cleaner.ttl=1800 \
     $SPARK_HOME/bin/spark-submit \
 	$ARG_MESOS_MASTER \
-	--executor-cores 64 \
+	--executor-cores 50 \
 	--total-executor-cores $ARG_TOTAL_EXECUTOR_CORES \
-	--conf spark.cleaner.ttl=1800 \
 	--conf spark.default.parallelism=$ARG_DEFAULT_PARALLELISM \
 	--conf spark.driver.memory=$ARG_DRIVER_MEMORY \
 	--conf spark.executor.memory=$ARG_EXECUTOR_MEMORY \
@@ -259,14 +260,22 @@ execute_pmid () {
 }
 
 execute_eval () {
-#    INPUTPATH=/Users/scox/dev/starshome/app/chemotext/data/output.mesh.2
+    INPUTPATH=/Users/scox/dev/starshome/app/chemotext/data/output.mesh.2016-07-09
+    INPUTPATH=/projects/stars/var/chemotext/output.mesh.full.2016-07-09
+    EVALOUTPUT=/projects/stars/var/chemotext/eval
+    mkdir -p $EVALOUTPUT
+    echo "mesos master: $MESOS_MASTER"
+    echo "mesos master: $ARGS_MESOS_MASTER"
     spark \
+	--conf spark.shuffle.memoryFraction=0.7 \
+	--conf spark.local.dir=/projects/stars/var/chemotext/sparktmp \
         --py-files python/chemotext_util.py \
         $APP_HOME/python/evaluate.py \
         --host  $MESOS_MASTER \
         --name  "Chemotext2:Evaluate(Article)" \
         --venv  $VENV \
         --input $INPUTPATH \
+	--output $EVALOUTPUT \
         --ctdAB $CTDABPATH \
         --ctdBC $CTDBCPATH \
         --ctdAC $CTDACPATH
