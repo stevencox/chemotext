@@ -292,7 +292,7 @@ def evaluate_articles (conf):
         map(lambda b : json.dumps (b, cls=BinaryEncoder)). \
         saveAsTextFile ("file://" + output_path)
     '''
-    slices = 10000
+    slices = 1 #10000
     for slice_n in range (0, slices):
         output_dir = os.path.join (conf.output_dir, "annotated", str(slice_n))
         if not os.path.exists (output_dir):

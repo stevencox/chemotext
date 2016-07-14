@@ -260,15 +260,20 @@ execute_pmid () {
 }
 
 execute_eval () {
-    INPUTPATH=/Users/scox/dev/starshome/app/chemotext/data/output.mesh.2016-07-09
-    INPUTPATH=/projects/stars/var/chemotext/output.mesh.full.2016-07-09
-    EVALOUTPUT=/projects/stars/var/chemotext/eval
+    edev () {
+        INPUTPATH=/Users/scox/dev/starshome/app/chemotext/data/output.mesh.full
+        EVALOUTPUT=/Users/scox/dev/starshome/var/chemotext/eval
+    }
+    eprod () {
+        INPUTPATH=/projects/stars/var/chemotext/output.mesh.full.2016-07-09
+        EVALOUTPUT=/projects/stars/var/chemotext/eval
+        #--conf spark.local.dir=/projects/stars/var/chemotext/sparktmp \
+    }
+    edev
     mkdir -p $EVALOUTPUT
-    echo "mesos master: $MESOS_MASTER"
-    echo "mesos master: $ARGS_MESOS_MASTER"
+
     spark \
 	--conf spark.shuffle.memoryFraction=0.7 \
-	--conf spark.local.dir=/projects/stars/var/chemotext/sparktmp \
         --py-files python/chemotext_util.py \
         $APP_HOME/python/evaluate.py \
         --host  $MESOS_MASTER \

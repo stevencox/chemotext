@@ -101,7 +101,7 @@ object ChemotextProcessor {
       article.BC.map { bc =>
         if (ab.R.equals (bc.L)) {
           if (logger.isDebugEnabled ()) {
-            logger.debug (s" ab/bc => ${ab.L} ${ab.R} ${bc.L} ${bc.R}")
+            //logger.debug (s" ab/bc => ${ab.L} ${ab.R} ${bc.L} ${bc.R}")
           }
           Triple ( ab.L, ab.R, bc.R )
         } else {
@@ -169,7 +169,8 @@ object ChemotextProcessor {
     code      : Int)
       : List[Binary] = 
   {
-    var binaries = L.flatMap { left =>
+    //var binaries =
+    L.flatMap { left =>
       R.map { right =>
         val distance = math.abs (left.docPos - right.docPos).toDouble
         if ( distance < threshold && distance > 0 ) {
@@ -197,8 +198,7 @@ object ChemotextProcessor {
     }
 
     /* Where multiple a->b pairs have been generated, we keep the instance with the shortest
-     distance and discard the rest for each unique a->b pair. */
-
+     distance and discard the rest for each unique a->b pair.
     if (logger.isDebugEnabled ()) {
       binaries.foreach { b => logger.debug (s"B> ${b.L}->${b.R} ${b.uberDist}") }
     }
@@ -225,6 +225,8 @@ object ChemotextProcessor {
     }
 
     result
+ */
+
   }
 
   def quantifyArticle (config : QuantifierConfig) : QuantifiedArticle = {
@@ -620,14 +622,34 @@ object ChemotextProcessor {
   }
 
   def tagFacts (assertions : List[Binary], facts : Array[Binary]) : List[Binary] = {
+    if (logger.isDebugEnabled ()) {
+      assertions.foreach { a =>
+        println (s"**> tagFacts:Assertion: $a")
+      }
+      facts.foreach { f =>
+        println (s"**> tagFacts:Fact: $f")
+      }
+    }
     assertions.foreach { assertion =>
       facts.foreach { fact =>
-        if (assertion.id == fact.id) {
+        val binaryKey = s"${assertion.L}@${assertion.R}"
+        val factKey = s"${fact.L}@${fact.R}"
+
+        //if (assertion.id == fact.id) {
+        if ( binaryKey == factKey ) {
           assertion.fact = true
           assertion.refs = fact.refs
         }
       }
     }
+    if (logger.isDebugEnabled ()) {
+      assertions.foreach { a =>
+        if (a.fact) {
+          println (s"**> Fact: $a")
+        }
+      }
+    }
+
     assertions
   }
 
