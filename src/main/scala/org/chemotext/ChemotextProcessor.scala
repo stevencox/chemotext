@@ -169,7 +169,7 @@ object ChemotextProcessor {
     code      : Int)
       : List[Binary] = 
   {
-    //var binaries =
+    var binaries =
     L.flatMap { left =>
       R.map { right =>
         val distance = math.abs (left.docPos - right.docPos).toDouble
@@ -197,8 +197,11 @@ object ChemotextProcessor {
       element.docDist != 0
     }
 
-    /* Where multiple a->b pairs have been generated, we keep the instance with the shortest
+    /*
+     Where multiple a->b pairs have been generated, we keep the instance with the shortest
      distance and discard the rest for each unique a->b pair.
+     */
+
     if (logger.isDebugEnabled ()) {
       binaries.foreach { b => logger.debug (s"B> ${b.L}->${b.R} ${b.uberDist}") }
     }
@@ -225,7 +228,6 @@ object ChemotextProcessor {
     }
 
     result
- */
 
   }
 

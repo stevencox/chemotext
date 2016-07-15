@@ -194,84 +194,82 @@ def get_facts (sc, conf):
     bc = load_facts (sqlContext, conf.ctdBC, 0, 2, 8)
     ac = load_facts (sqlContext, conf.ctdAC, 0, 3, 9)
     reference_binaries = [ ab, bc, ac ]
-    ab.unpersist ()
-    bc.unpersist ()
-    ac.unpersist ()
-    ab = None
-    bc = None
-    ac = None
-    return sc.union (reference_binaries). \
-        flatMap (expand_ref_binaries).cache ()
+    return sc.union (reference_binaries).flatMap (expand_ref_binaries).cache ()
 
-def get_article_guesses (article_path):
+def get_article (article_path):
     logger = LoggingUtil.init_logging (__file__)
     logger.info ("Article: @-- {0}".format (article_path))
     article = SUtil.read_article (article_path)
-    return article.AB + article.BC + article.AC
+    return article
+def get_article_guesses (article):
+    guesses = article.AB + article.BC + article.AC
+    skiplist = [ 'for', 'was', 'she', 'long' ]
+    result = []
+    for g in guesses:
+        if not g.L in skiplist and not g.R in skiplist:
+            result.append (g)
+    return result
 def distance (b):
     b.dist = 1000000 * b.paraDist + 100000 * b.sentDist + b.docDist
     return b
-def get_guesses (sc, conf):
-    articles = glob.glob (os.path.join (conf.input_dir, "*fxml.json"))
-    articles = sc.parallelize (articles) #.sample (False, 0.5, 81)
-    return articles.\
-        flatMap (lambda article : get_article_guesses (article)). \
-        map (lambda b : ( make_key (b.L, b.R, b.pmid), distance (b) ) ). \
-        reduceByKey (lambda x, y : x if x.dist < y.dist else x)
 
 def get_guesses (sc, conf, slices, slice_n):
     articles = glob.glob (os.path.join (conf.input_dir, "*fxml.json"))
     slice_size = int (len (articles) / slices)
     offset = slice_size * slice_n
-    print "--------------------slice size {0}".format (slice_size)
-    print "--------------------    offset {0}".format (offset)
+    logger.info ("   -- Evaluate execution (slice_size=>{0}, offset=>{1})".format (slice_size, offset))
     articles = articles [ offset : offset + slice_size ]
-    articles = sc.parallelize (articles, 20) #.sample (False, 0.5, 81)
-    skiplist = [ 'for', 'was' ]
-    return articles.\
-        flatMap (lambda article : get_article_guesses (article)). \
-        filter (lambda b : b.L not in skiplist and b.R not in skiplist ). \
-        map (lambda b : ( make_key (b.L, b.R, b.pmid), distance (b) ) ). \
-        reduceByKey (lambda x, y : x if x.dist < y.dist else x).cache ()
+    articles = sc.parallelize (articles, conf.parts)
+    articles = articles.map (lambda p : get_article (p))
+    pmids = articles.map (lambda a : a.id).collect ()
+    guesses = articles.\
+              flatMap (lambda article : get_article_guesses (article)). \
+              map (lambda b : ( make_key (b.L, b.R, b.pmid), distance (b) ) )
+    return (guesses, pmids)
 
 def mark_binary (binary, fact=True):
     binary.fact = fact
     binary.refs = []
     return binary
 def trace_set (trace_level, label, rdd):
-    if (logger.getEffectiveLevel() == trace_level):
+    if (logger.getEffectiveLevel() > trace_level):
         for g in rdd.collect ():
-            print ("{0}> {1}->{2}".format (label, g[0], g[1]))
-def annotate (guesses, facts):
+            print ("  {0}> {1}->{2}".format (label, g[0], g[1]))
+def annotate (guesses, facts, article_pmids):
     trace_level = logging.DEBUG
     trace_set (trace_level, "Fact", facts)
     trace_set (trace_level, "Guess", guesses)
 
-    true_positive = guesses. \
-                    join (facts).                                        \
+    '''
+    We get a list of all facts for every slice of guesses. It's not correct to subtract 
+    true postivies from *all* facts. We need to use only facts asserted for the affected
+    documents. Filter facts to only those with pmids in the target list.
+       pmids <- articles.pmids
+       target_facts <- facts.filter (pmids)
+    '''
+    relevant_facts = facts.filter (lambda f : f[1].pmid in article_pmids)
+
+    # Things we found in articles that are facts
+    true_positive = guesses.                                                  \
+                    join (relevant_facts).                                    \
                     map (lambda b : ( b[0], mark_binary (b[1][0], fact=True) ))
-    trace_set (trace_level, "TPos", true_positive)
+    trace_set (trace_level, "TruePos", true_positive)
 
-    false_positive = guesses.subtractByKey (true_positive). \
+    # Things we found in articles that are not facts
+    false_positive = guesses.subtractByKey (true_positive).                  \
                      map (lambda b : ( b[0], mark_binary (b[1], fact=False) ))
-    trace_set (trace_level, "FPos", false_positive)
+    trace_set (trace_level, "FalsePos", false_positive)
 
-    false_negative = facts.subtractByKey (true_positive)
-    trace_set (trace_level, "FNeg", false_negative)
+    # Things that are facts in these articles that we did not find
+    false_negative = relevant_facts.subtractByKey (true_positive)
+    trace_set (trace_level, "FalseNeg", false_negative)
 
-    union = true_positive.\
-            union (false_positive).\
+    union = true_positive. \
+            union (false_positive). \
             union (false_negative)
-    true_positive.unpersist ()
-    false_positive.unpersist ()
-    false_negative.unpersist ()
-    true_positive = None
-    false_positive = None
-    false_negative = None
     return union.map (lambda v: v[1])
 
 def evaluate_articles (conf):
-    
     logger.info ("Evaluating Chemotext2 output: {0}".format (conf.input_dir))
     sc = SparkUtil.get_spark_context (conf)
 
@@ -279,33 +277,17 @@ def evaluate_articles (conf):
     facts = get_facts (sc, conf)
     logger.info ("Loading guesses")
 
-    '''
-    guesses = get_guesses (sc, conf)
-    logger.info ("Annotating")
-    annotated = annotate (guesses, facts)
-    if os.path.exists (conf.output_dir):
-        shutil.rmtree (conf.output_dir)
-    if os.path.exists ("machine"):
-        shutil.rmtree ("machine")
-    output_path = os.path.join (conf.output_dir, "annotated")
-    annotated.\
-        map(lambda b : json.dumps (b, cls=BinaryEncoder)). \
-        saveAsTextFile ("file://" + output_path)
-    '''
-    slices = 1 #10000
-    for slice_n in range (0, slices):
+    for slice_n in range (0, conf.slices):
         output_dir = os.path.join (conf.output_dir, "annotated", str(slice_n))
-        if not os.path.exists (output_dir):
-            guesses = get_guesses (sc, conf, slices, slice_n)
-            annotated = annotate (guesses, facts)
+        if os.path.exists (output_dir):
+            logger.info ("Skipping existing directory {0}".format (output_dir))
+        else:
+            guesses, article_pmids = get_guesses (sc, conf, conf.slices, slice_n)
+            annotated = annotate (guesses, facts, article_pmids)
             logger.info ("Generating annotated output for " + output_dir)
             annotated.\
                 map(lambda b : json.dumps (b, cls=BinaryEncoder)). \
                 saveAsTextFile ("file://" + output_dir)
-#        for x in range (2, 7):
-#            subprocess.call ([ "ssh", "stars-c{0}.edc.renci.org".format (x), "rm -rf /tmp/mesos/slaves/*" ])
-
-#    train_log_reg (sc, annotated)
 
 def train_log_reg (sc, annotated):
     def label (b):
@@ -325,11 +307,6 @@ def json_io ():
     with open ("machine.txt", "w") as stream:
         stream.write (json.dumps (annotated.collect (), cls=BinaryEncoder, indent=2))
 
-    with open ("machine.txt", "r") as stream:
-        decoder = BinaryDecoder ()
-        for b in decoder.decode (stream.read ()):
-            print b
-
 def main ():
     '''
     Parse command line arguments for the evaluation pipeline.
@@ -339,6 +316,8 @@ def main ():
     parser.add_argument("--name",   help="Spark framework name")
     parser.add_argument("--input",  help="Output directory for a Chemotext2 run.")
     parser.add_argument("--output", help="Output directory for evaluation.")
+    parser.add_argument("--slices", help="Number of slices of files to iterate over.")
+    parser.add_argument("--parts",  help="Number of partitions for the computation.")
     parser.add_argument("--venv",   help="Path to Python virtual environment to use")
     parser.add_argument("--ctdAB",  help="Path to CTD AB data")
     parser.add_argument("--ctdBC",  help="Path to CTD BC data")
@@ -349,6 +328,8 @@ def main ():
                          framework_name = args.name,
                          input_dir      = args.input,
                          output_dir     = args.output,
+                         slices         = int(args.slices),
+                         parts          = int(args.parts),
                          ctdAB          = args.ctdAB,
                          ctdBC          = args.ctdBC,
                          ctdAC          = args.ctdAC)

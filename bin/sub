@@ -263,10 +263,14 @@ execute_eval () {
     edev () {
         INPUTPATH=/Users/scox/dev/starshome/app/chemotext/data/output.mesh.full
         EVALOUTPUT=/Users/scox/dev/starshome/var/chemotext/eval
+        EVAL_SLICES=1
+        EVAL_PARTS=1
     }
     eprod () {
         INPUTPATH=/projects/stars/var/chemotext/output.mesh.full.2016-07-09
         EVALOUTPUT=/projects/stars/var/chemotext/eval
+        EVAL_SLICES=100
+        EVAL_PARTS=150
         #--conf spark.local.dir=/projects/stars/var/chemotext/sparktmp \
     }
     edev
@@ -281,6 +285,8 @@ execute_eval () {
         --venv  $VENV \
         --input $INPUTPATH \
 	--output $EVALOUTPUT \
+        --slices $EVAL_SLICES \
+        --parts $EVAL_PARTS \
         --ctdAB $CTDABPATH \
         --ctdBC $CTDBCPATH \
         --ctdAC $CTDACPATH
