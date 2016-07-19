@@ -56,9 +56,9 @@ prod () {
     SAMPLESIZE=1
     SLICES=100
     ARG_MESOS_MASTER=
-    ARG_EXECUTOR_MEMORY=150G
-    ARG_DRIVER_MEMORY=10G
-    ARG_TOTAL_EXECUTOR_CORES=170
+    ARG_EXECUTOR_MEMORY=200G
+    ARG_DRIVER_MEMORY=15G
+    ARG_TOTAL_EXECUTOR_CORES=$(( 30 * 5 ))
     ARG_MAX_RESULT_SIZE=15G
     ARG_DEFAULT_PARALLELISM=256
 #    export MESOS_MASTER=mesos://$(hostname):5050
@@ -196,9 +196,10 @@ spark () {
     SPARK_CSV=com.databricks:spark-csv_2.10:1.4.0
     SPARK_XML=com.databricks:spark-xml_2.10:0.3.3
     #--conf spark.cleaner.ttl=1800 \
+    #--executor-cores 50 \
+
     $SPARK_HOME/bin/spark-submit \
 	$ARG_MESOS_MASTER \
-	--executor-cores 50 \
 	--total-executor-cores $ARG_TOTAL_EXECUTOR_CORES \
 	--conf spark.default.parallelism=$ARG_DEFAULT_PARALLELISM \
 	--conf spark.driver.memory=$ARG_DRIVER_MEMORY \
@@ -269,15 +270,14 @@ execute_eval () {
     eprod () {
         INPUTPATH=/projects/stars/var/chemotext/output.mesh.full.2016-07-09
         EVALOUTPUT=/projects/stars/var/chemotext/eval
-        EVAL_SLICES=100
-        EVAL_PARTS=150
+        EVAL_SLICES=10 #00
+        EVAL_PARTS=$(( 32 * 6 * 3 )) # 32 cores x 5 tasks x 3 (spark constant)
         #--conf spark.local.dir=/projects/stars/var/chemotext/sparktmp \
+	#--conf spark.shuffle.memoryFraction=0.7 \
     }
-    edev
+    e$env
     mkdir -p $EVALOUTPUT
-
     spark \
-	--conf spark.shuffle.memoryFraction=0.7 \
         --py-files python/chemotext_util.py \
         $APP_HOME/python/evaluate.py \
         --host  $MESOS_MASTER \

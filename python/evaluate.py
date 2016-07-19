@@ -236,7 +236,7 @@ def trace_set (trace_level, label, rdd):
         for g in rdd.collect ():
             print ("  {0}> {1}->{2}".format (label, g[0], g[1]))
 def annotate (guesses, facts, article_pmids):
-    trace_level = logging.DEBUG
+    trace_level = logging.ERROR
     trace_set (trace_level, "Fact", facts)
     trace_set (trace_level, "Guess", guesses)
 
@@ -247,7 +247,7 @@ def annotate (guesses, facts, article_pmids):
        pmids <- articles.pmids
        target_facts <- facts.filter (pmids)
     '''
-    relevant_facts = facts.filter (lambda f : f[1].pmid in article_pmids)
+    relevant_facts = facts.filter (lambda f : f[1].pmid in article_pmids).cache ()
 
     # Things we found in articles that are facts
     true_positive = guesses.                                                  \
