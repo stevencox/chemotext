@@ -1,4 +1,5 @@
 import copy
+import calendar
 import datetime
 import glob
 import json
@@ -232,23 +233,24 @@ class SerializationUtil(object):
         return result
     @staticmethod
     def parse_date (date):
-#        return datetime.datetime.strptime (date, "%d-%m-%Y")
         result = None
         try:
             result = datetime.datetime.strptime (date, "%d-%m-%Y")
         except ValueError:
             print "ERROR-> {0}".format (date)
+        logger.debug ("Parsed date: {0}, ts: {1}".format (result, calendar.timegm(result.timetuple())))
         return result
     @staticmethod
     def parse_month_year_date (month, year):
         result = None
         if month and year:
-            logger.debug ("Parsing {0}-{1}-{2}".format (1, month, year))
+            logger.info ("Parsing {0}-{1}-{2}".format (1, month, year))
             text = "{0}-{1}-{2}".format (1, month, year)
             try:
                 result = datetime.datetime.strptime (text, "%d-%m-%Y")
             except ValueError:
                 result = datetime.datetime.strptime (text, "%d-%b-%Y")
+            logger.debug ("Parsed date: {0}, ts: {1}".format (result, calendar.timegm(result.timetuple())))
         return result
 
 class Conf(object):
@@ -275,38 +277,107 @@ class EvaluateConf(Conf):
         self.ctdAC = ctdAC
 
 class MedlineConf(object):
-    def __init__(self, host, venv, framework_name, data_root):
+    def __init__(self, host, venv, framework_name, data_root, gen_pmid_map):
         self.host = host
         self.venv = venv
         self.framework_name = framework_name
         self.data_root = data_root
+        self.gen_pmid_map = gen_pmid_map
 
+class MedlineHeading(object):
+    def __init__ (self, heading):
+        descriptor = heading.find ("DescriptorName")                                     
+        self.descriptor_name = descriptor.text.lower ()
+        self.major_topic = descriptor.get ("MajorTopic")
+        self.ui = descriptor.get ("UI")
+        self.qualifiers = MedlineQualifier.from_heading (heading)
+    def __str__(self):
+        return self.__repr__()
+    def __repr__(self):
+        return "name: {0} mt: {1} ui: {2} qual: {3}".format (
+            self.descriptor_name, self.major_topic, self.ui, self.qualifiers)
+
+class MedlineQualifier(object):
+    def __init__(self, text, ui):
+        self.text = text.lower ()
+        self.ui = ui
+    def __str__(self):
+        return self.__repr__()
+    def __repr__(self):
+        return "t:{0} ui:{1}".format (self.text, self.ui)
+    @staticmethod
+    def from_heading (heading):
+        result = []
+        qualifiers = heading.findall ("QualifierName")
+        for qualifier in qualifiers:
+            result.append (MedlineQualifier (qualifier.text, qualifier.get ("UI")))
+        return result
+
+class MedlineQuant(object):
+    def __init__(self, pmid, date, A, B, C):
+        self.pmid = pmid
+        self.date = date
+        self.A = A
+        self.B = B
+        self.C = C
+    def __str__(self):
+        return self.__repr__()
+    def __repr__(self):
+        return "pmid:{0} dt:{1} A:{2} B:{3} C:{4}".format (
+            self.pmid, self.date, self.A, self.B, self.C)
 
 class Citation(object):
-    def __init__(self, date_created, pub_date, pmid):
+    ''' Represent a PubMed citation. '''
+    @classmethod
+    def from_node(cls, root):
+        chemicals = [ n.text for n in root.findall ("ChemicalList/Chemical/NameOfSubstance") ]
+        headings = [ MedlineHeading (h) for h in root.findall ("MeshHeadingList/MeshHeading") ]
+        return cls (root.findtext ("PMID"),
+                    root.find ("DateCreated"),
+                    root.find ("Article/Journal/JournalIssue/PubDate"),
+                    chemicals,
+                    headings)
+
+    def __init__(self, pmid, date_created, pub_date, chemicals, headings):
         self.pmid = pmid
         pubdate_timestamp = sys.maxint
-        if len(pub_date):
+        if len(pub_date) > 0:
             month = pub_date.findtext ("Month")
             year = pub_date.findtext ("Year")
-            datetime = SerializationUtil.parse_month_year_date (month, year)
-            if datetime:
+            date_time = SerializationUtil.parse_month_year_date (month, year)
+            if date_time:
                 try:
-                    pubdate_timestamp = int(time.mktime (datetime.timetuple ()))
+                    pubdate_timestamp = int(calendar.timegm (date_time.timetuple ()))
                 except ValueError:
-                    pass
+                    logger.error ("Failed to parse date {0}".format (date_time))
+
         datecreated_timestamp = sys.maxint            
-        if len(date_created):
+        if len(date_created) > 0:
             day = date_created.findtext ("Day")
             month = date_created.findtext ("Month")
             year = date_created.findtext ("Year")
-            datetime = SerializationUtil.parse_date ("{0}-{1}-{2}".format (day, month, year))
-            if datetime:
+            date_time = SerializationUtil.parse_date ("{0}-{1}-{2}".format (day, month, year))
+            if date_time:
                 try:
-                    datecreated_timestamp = int(time.mktime (datetime.timetuple ()))
+                    datecreated_timestamp = int(calendar.timegm (date_time.timetuple ()))
                 except ValueError:
-                    pass
+                    logger.error ("Failed to parse date {0}".format (date_time))
+        
+        '''
+        logger.info ("pmid: {0} date_created: {1} pubdate {2}".format (
+            self.pmid,
+            datetime.fromtimestamp (datecreated_timestamp),
+            datetime.fromtimestamp (pubdate_timestamp)))
+        '''
         self.date = min (datecreated_timestamp, pubdate_timestamp)
+
+        if self.date is datecreated_timestamp:
+            logger.info ("{0} went with datecreated".format (self.pmid))
+        else:
+            logger.info ("{0} went with pubdate".format (self.pmid))
+
+        self.chemicals = chemicals
+        self.headings = headings
 
     def get_pmid_date (self):
         return ( self.pmid, self.date )
@@ -327,23 +398,24 @@ class Medline(object):
         root = ET.parse (file_name).getroot ()
         citations = root.findall ("MedlineCitation")
         for citation in citations:
-            result.append ( Citation (
-                date_created = citation.find ("DateCreated"),
-                pub_date = citation.find ("Article/Journal/JournalIssue/PubDate"),
-                pmid = citation.find ("PMID").text))
+            result.append (Citation.from_node ( citation ))
         return result
 
-    def load_pmid_date_concurrent (self):
+    def parse_citations (self):
         logger.info ("Load medline data to determine dates by pubmed ids")
         logger.info ("   ** Medline path: {0}".format (self.medline_path))
         archives = glob.glob (os.path.join (self.medline_path, "*.xml"))
         logger.info ("   ** Found {0} XML citation files".format (len (archives)))
-        archives = self.sc.parallelize (archives). \
-                   flatMap (lambda file_name : Medline.parse (file_name)). \
-                   map (lambda citation : citation.get_pmid_date ())
+        return self.sc. \
+            parallelize (archives). \
+            flatMap (lambda file_name : Medline.parse (file_name))
+
+    def generate_pmid_date_map (self):
+        pairs = self.parse_citations (). \
+                map (lambda citation : citation.get_pmid_date ())
         json_path = os.path.join (self.conf.data_root, "pmid", "pmid_date.json")
         with open(json_path, "w") as stream:
-            data = archives.collect ()
+            data = pairs.collect ()
             stream.write (json.dumps (dict (data)))
             stream.close ()
             logger.info ("** Writing: {0}".format (json_path))
@@ -401,14 +473,6 @@ class P53Inter(object):
     def __str__ (self):
         return "P53Inter(A: {0}\n  B: {1}\n  alt_A: {2}\n  alt_B: {3} pmid: {4})".format (
             self.A, self.B, self.alt_A, self.alt_B, self.pmid)
-
-class MedlineQuant(object):
-    def __init__(self, pmid, date, A, B, C):
-        self.pmid = pmid
-        self.date = date
-        self.A = A
-        self.B = B
-        self.C = C
 
 class SparkUtil(object):
     @staticmethod

@@ -193,7 +193,6 @@ spark () {
     SPARK_XML=com.databricks:spark-xml_2.10:0.3.3
     #--conf spark.cleaner.ttl=1800 \
     #--executor-cores 50 \
-
     $SPARK_HOME/bin/spark-submit \
 	$ARG_MESOS_MASTER \
 	--total-executor-cores $ARG_TOTAL_EXECUTOR_CORES \
@@ -232,18 +231,13 @@ execute_ct1 () {
 	--py-files python/chemotext_util.py \
 	$APP_HOME/python/medline.py \
 	--host  $MESOS_MASTER \
-	--name  "Chemotext2:Chemotext1(Medline)" \
+	--name  "Chemotext2:CT1(AnalyzeMedline)" \
 	--venv  $VENV \
-	--data  $DATA_HOME
+	--data  $DATA_HOME \
+        $*
 }
-execute_pmid () {
-    spark \
-	--py-files python/chemotext_util.py \
-	$APP_HOME/python/pread.py \
-	--host  $MESOS_MASTER \
-	--name  "Chemotext2:PMIDMap" \
-	--venv  $VENV \
-	--input $MEDLINE_DATA
+execute_pmidmap () {
+    execute_ct1 --pmid --name "Chemotext2:CT1(PMID->Date)"
 }
 
 execute_eval () {
@@ -256,7 +250,7 @@ execute_eval () {
     eprod () {
         INPUTPATH=/projects/stars/var/chemotext/output.mesh.full.2016-07-09
         EVALOUTPUT=/projects/stars/var/chemotext/eval
-        EVAL_SLICES=10 #00
+        EVAL_SLICES=10
         EVAL_PARTS=$(( 32 * 6 * 3 )) # 32 cores x 5 tasks x 3 (spark constant)
     }
     e$env
