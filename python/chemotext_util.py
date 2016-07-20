@@ -244,7 +244,7 @@ class SerializationUtil(object):
     def parse_month_year_date (month, year):
         result = None
         if month and year:
-            logger.info ("Parsing {0}-{1}-{2}".format (1, month, year))
+            logger.debug ("Parsing {0}-{1}-{2}".format (1, month, year))
             text = "{0}-{1}-{2}".format (1, month, year)
             try:
                 result = datetime.datetime.strptime (text, "%d-%m-%Y")
@@ -372,9 +372,9 @@ class Citation(object):
         self.date = min (datecreated_timestamp, pubdate_timestamp)
 
         if self.date is datecreated_timestamp:
-            logger.info ("{0} went with datecreated".format (self.pmid))
+            logger.debug ("{0} went with datecreated".format (self.pmid))
         else:
-            logger.info ("{0} went with pubdate".format (self.pmid))
+            logger.debug ("{0} went with pubdate".format (self.pmid))
 
         self.chemicals = chemicals
         self.headings = headings
