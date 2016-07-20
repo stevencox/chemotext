@@ -70,7 +70,6 @@ prod () {
     DATA_HOME=file://$STARS_HOME/var/chemotext #hdfs://stars-c0.edc.renci.org:9000/chemotext
 }
 hatteras () {
-    #MEDLINE_DATA=$DATA_HOME/pubmed/medline/medline16n0736.xml
     SLICES=100000
     APP_HOME=/home/scox/dev/chemotext
     SPARK_HOME=/home/scox/dev/spark/current
@@ -147,15 +146,12 @@ config () {
         OUTPUTPATH=$DATA_HOME/output.mesh.full
     fi
     INPUTPATH=$OUTPUTPATH
-#echo $INPUTPATH
-#exit 0
     mkdir -p $OUTPUTPATH
     export JAVA_OPTS="-Xmx5G -Xms5G"
     genTmChemConfig
 }
 
 execute () {
-#    $env
     config
     cd $APP_HOME
     execute_${app}
@@ -232,11 +228,6 @@ execute_ct2 () {
 }
 
 execute_ct1 () {
-    #ARG_EXECUTOR_MEMORY=10G
-    #ARG_DRIVER_MEMORY=4G
-    #ARG_TOTAL_EXECUTOR_CORES=16
-    #ARG_MAX_RESULT_SIZE=1G
-    #export MESOS_MASTER=mesos://stars-c1.edc.renci.org:5050
     spark \
 	--py-files python/chemotext_util.py \
 	$APP_HOME/python/medline.py \
@@ -246,11 +237,6 @@ execute_ct1 () {
 	--data  $DATA_HOME
 }
 execute_pmid () {
-    #ARG_EXECUTOR_MEMORY=5G
-    #ARG_DRIVER_MEMORY=6G
-    #ARG_TOTAL_EXECUTOR_CORES=5
-    #ARG_MAX_RESULT_SIZE=5G
-    #export MESOS_MASTER=mesos://stars-c1.edc.renci.org:5050
     spark \
 	--py-files python/chemotext_util.py \
 	$APP_HOME/python/pread.py \
@@ -272,8 +258,6 @@ execute_eval () {
         EVALOUTPUT=/projects/stars/var/chemotext/eval
         EVAL_SLICES=10 #00
         EVAL_PARTS=$(( 32 * 6 * 3 )) # 32 cores x 5 tasks x 3 (spark constant)
-        #--conf spark.local.dir=/projects/stars/var/chemotext/sparktmp \
-	#--conf spark.shuffle.memoryFraction=0.7 \
     }
     e$env
     mkdir -p $EVALOUTPUT

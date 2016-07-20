@@ -291,7 +291,10 @@ class Citation(object):
             year = pub_date.findtext ("Year")
             datetime = SerializationUtil.parse_month_year_date (month, year)
             if datetime:
-                pubdate_timestamp = int(time.mktime (datetime.timetuple ()))
+                try:
+                    pubdate_timestamp = int(time.mktime (datetime.timetuple ()))
+                except ValueError:
+                    pass
         datecreated_timestamp = sys.maxint            
         if len(date_created):
             day = date_created.findtext ("Day")
@@ -299,7 +302,10 @@ class Citation(object):
             year = date_created.findtext ("Year")
             datetime = SerializationUtil.parse_date ("{0}-{1}-{2}".format (day, month, year))
             if datetime:
-                datecreated_timestamp = int(time.mktime (datetime.timetuple ()))             
+                try:
+                    datecreated_timestamp = int(time.mktime (datetime.timetuple ()))
+                except ValueError:
+                    pass
         self.date = min (datecreated_timestamp, pubdate_timestamp)
 
     def get_pmid_date (self):
@@ -307,110 +313,17 @@ class Citation(object):
 
 class Medline(object):
 
-    data_root = None
-    use_mem_cache = True
-    sc = None
-
     def __init__(self, sc, conf, use_mem_cache=False):
         self.sc = sc
         self.use_mem_cache = use_mem_cache
         self.conf = conf
-        Medline.data_root = conf.data_root
         self.medline_path = os.path.join (conf.data_root, "pubmed", "medline")
         self.pmid_root = os.path.join (conf.data_root, "pmid")
         
-    '''
-    def load_medline_xml (self, file_name):
-        file_uri = file_name
-        if self.use_mem_cache:
-            file_uri = file_name.replace ("/projects/stars/var", "alluxio://stars-c0.edc.renci.org:19998")
-            print ("FILE URI: {0}".format (file_uri))
-        sqlContext = SQLContext (self.sc)
-        return sqlContext.read.format ('com.databricks.spark.xml'). \
-            options(rowTag='MedlineCitation').load (file_uri)
-
-    def load_pmid_date (self):
-        logger.info ("Load medline data to determine dates by pubmed ids")
-        sqlContext = SQLContext (self.sc)
-
-#         Iterate over all Medline files adding them to the DataFrame 
-        medline_pieces = glob.glob (os.path.join (self.medline_path, "*.xml"))
-        pmid_df = []
-        block = 0
-        x = 0
-        for piece in medline_pieces:
-
-            #json_name = os.path.basename (piece).replace (".xml", ".json")
-            json_name = os.path.join (Medline.data_root, os.path.basename (piece).replace (".xml", ".json"))
-            if os.path.exists (json_name):
-                logger.info ("** JSON for {0} exists: {1}".format (piece, json_name))
-                continue
-
-            piece_df = self.load_medline_xml (piece)
-            #pmid_date = pmid_date.unionAll (piece_df) if pmid_date else piece_df
-            start = time.time ()
-            pmid_date_slice = piece_df. \
-                              select (piece_df["DateCreated"], piece_df["PMID"]). \
-                              map (lambda r : Medline.map_date (r))
-
-            json_path = os.path.join (Medline.data_root, json_name)
-            with open(json_path, "w") as stream:
-                stream.write (json.dumps (pmid_date_slice.collect (),
-                                          sort_keys=True,
-                                          indent=2))
-                stream.close ()
-                print "collect: {0}".format (json_path)
-            block = block + 1
-            elapsed = time.time () - start
-            logger.info ("*** Time elapsed loading {0}: {1}".format (piece, elapsed))
-
-            x = x + 1
-            if x > 2:
-                pass
-                #break
-        '''
-
-
-
-    '''
-    ------------------------- parallel?
-    '''
-    @staticmethod
-    def parse_medline_xml (data_root, file_name):
-        dataframe = None
-        json_name = os.path.join (data_root, os.path.basename (file_name).replace (".xml", ".json"))
-        if os.path.exists (json_name):
-            logger.info ("** JSON for {0} exists @: {1}".format (file_name, json_name))
-        else:
-            file_uri = file_name
-            if Medline.use_mem_cache:
-                file_uri = file_name.replace ("/projects/stars/var", "alluxio://stars-c0.edc.renci.org:19998")
-                print ("FILE URI: {0}".format (file_uri))
-        logger.info ("** Parsing {0}".format (file_uri))
-        return SQLContext (Medline.sc).read. \
-            format ('com.databricks.spark.xml'). \
-            options(rowTag='MedlineCitation'). \
-            load (file_uri)
-
-        '''
-        
-            dataframe = SQLContext (Medline.sc).read. \
-                format ('com.databricks.spark.xml'). \
-                options(rowTag='MedlineCitation'). \
-                load (file_uri)
-            
-            return dataframe.select (
-                #dataframe["PubMedData"]["History"],
-                dataframe["DateCreated"],
-                dataframe["Article"]["Journal"]["JournalIssue"]["PubDate"],
-                dataframe["PMID"]). \
-                map (lambda r : Medline.map_date_numeric (r))
-        '''
-
     @staticmethod
     def parse (file_name):
-        result = []
         logger.info ("Parse XML: {0}".format (file_name))
+        result = []
         root = ET.parse (file_name).getroot ()
         citations = root.findall ("MedlineCitation")
         for citation in citations:
@@ -422,7 +335,9 @@ class Medline(object):
 
     def load_pmid_date_concurrent (self):
         logger.info ("Load medline data to determine dates by pubmed ids")
+        logger.info ("   ** Medline path: {0}".format (self.medline_path))
         archives = glob.glob (os.path.join (self.medline_path, "*.xml"))
+        logger.info ("   ** Found {0} XML citation files".format (len (archives)))
         archives = self.sc.parallelize (archives). \
                    flatMap (lambda file_name : Medline.parse (file_name)). \
                    map (lambda citation : citation.get_pmid_date ())
@@ -432,122 +347,6 @@ class Medline(object):
             stream.write (json.dumps (dict (data)))
             stream.close ()
             logger.info ("** Writing: {0}".format (json_path))
-
-
-    # deprecated
-    def parse_xml (self, path):
-        return Medline.parse_medline_xml (Medline.data_root, path)
-
-
-    # deprecated
-    ''' Load it all and write one big output file '''
-    def load_pmid_date_concurrent0 (self):
-        logger.info ("Load medline data to determine dates by pubmed ids")
-        Medline.sc = self.sc
-        archives = glob.glob (os.path.join (self.medline_path, "*.xml"))
-        dataframes = map (self.parse_xml, archives)
-        union = self.sc.parallelize ([]).toDF ()
-        for d in dataframes:
-            union = union.unionAll (d)
-        union = union.select (
-            #dataframe["PubMedData"]["History"],
-            dataframe["DateCreated"],
-            dataframe["Article"]["Journal"]["JournalIssue"]["PubDate"],
-            dataframe["PMID"]). \
-            map (lambda row : Medline.map_date_numeric (row))
-
-        '''
-        union = self.sc.union (dataframes).select (
-            #dataframe["PubMedData"]["History"],
-            dataframe["DateCreated"],
-            dataframe["Article"]["Journal"]["JournalIssue"]["PubDate"],
-            dataframe["PMID"]). \
-            map (lambda row : Medline.map_date_numeric (row))
-        '''
-        json_path = os.path.join (self.conf.data_root, "pmid", "pmid_date.json")
-        with open(json_path, "w") as stream:
-            data = union.collect ()
-            stream.write (json.dumps (dict (data)))
-            stream.close ()
-            logger.info ("** Writing: {0}".format (json_path))
-
-    @staticmethod
-    def map_date (r):
-        day = 0
-        month = 0
-        year = 0 
-        pmid = r["PMID"]["#VALUE"]
-        date = r ["DateCreated"]
-        if date:
-            day = date["Day"]
-            month = date["Month"]
-            year = date["Year"]
-        #return ( pmid, SerializationUtil.parse_date ("{0}-{1}-{2}".format (day, month, year)) )
-        return ( pmid, "{0}-{1}-{2}".format (day, month, year) )
-
-    @staticmethod
-    def map_date_numeric0 (r):
-        day = 0
-        month = 0
-        year = 0
-        pmid = r["PMID"]["#VALUE"]
-        
-        date = r ["DateCreated"]
-        if date:
-             day = date["Day"]
-             month = date["Month"]
-             year = date["Year"]
-        datetime = SerializationUtil.parse_date ("{0}-{1}-{2}".format (day, month, year))
-        timestamp = int(time.mktime (datetime.timetuple ()))             
-        return ( pmid, timestamp )
-
-    @staticmethod
-    def map_date_numeric (r):
-        month = 0
-        year = 0
-        pmid = r["PMID"]["#VALUE"]
-        '''
-        print "pmid: {0} pubdate: {1} datecreated: {2}".format (
-            pmid,
-            r["Article[Journal][JournalIssue][PubDate]"]["Day"],
-            r["DateCreated"]["Day"])
-        '''
-        row_dict = r.asDict ()
-        pubdate_timestamp = sys.maxint
-        if "Article[Journal][JournalIssue][PubDate]" in row_dict:
-            pubdate_date = r["Article[Journal][JournalIssue][PubDate]"]
-            if pubdate_date:
-                month = pubdate_date["Month"]
-                year = pubdate_date["Year"]
-                datetime = SerializationUtil.parse_month_year_date (month, year)
-                if datetime:
-                    pubdate_timestamp = int(time.mktime (datetime.timetuple ()))
-        
-        datecreated_timestamp = sys.maxint
-        if "DateCreated" in r.asDict ():
-            date = r["DateCreated"]
-            if date:
-                day = date["Day"]
-                month = date["Month"]
-                year = date["Year"]
-                datetime = SerializationUtil.parse_date ("{0}-{1}-{2}".format (day, month, year))
-                if datetime:
-                    datecreated_timestamp = int(time.mktime (datetime.timetuple ()))             
-            
-        hist_pubdate_timestamp = sys.maxint
-        if "History" in r.asDict ():
-            hist = r ["History"]
-            if "PubMedPubDate" in hist:
-                pub_date = hist["PubMedPubDate"]
-                if pub_date:
-                    for pd in pub_date:
-                        month = date["Month"]
-                        year = date["Year"]
-                        datetime = SerializationUtil.parse_month_year_date (month, year)
-                        hist_pubdate_timestamp = min (pubmed_pubdate_timestamp,
-                                                      int(time.mktime (datetime.timetuple ())))
-        timestamp = min (hist_pubdate_timestamp, datecreated_timestamp, pubdate_timestamp)
-        return ( pmid, timestamp )
 
 class Word2VecConf(Conf):
     def __init__(self, host, venv, framework_name, input_dir, mesh):

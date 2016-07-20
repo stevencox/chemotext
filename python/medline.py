@@ -104,40 +104,14 @@ def make_triples (mquant):
     return triples
 
 def analyze_medline (conf):
-    logger.info ("conf: {0}".format (conf))
+    logger.info ("Conf: {0}".format (conf))
     sc = SparkUtil.get_spark_context (conf)
-    Medline.data_root = conf.data_root
+    Medline.data_root = conf.data_root    
     medline_conn = Medline (sc, conf, use_mem_cache=True)
-
     start = time.time()
     pmid_df = medline_conn.load_pmid_date_concurrent ()
     elapsed = time.time() - start
-    print ("TIME: ------------> {0}".format (elapsed))
-
-    '''
-    sqlContext = SQLContext (sc)
-    medline = sqlContext.read. \
-        format ('com.databricks.spark.xml'). \
-        options(rowTag='MedlineCitation').   \
-        load(conf.input_xml).                \
-        rdd
-
-    vocab = { 'A' : [], 'B' : [], 'C' : [] }
-#    with open ('vocabulary.json') as stream:
-#        vocab = json.loads (stream.read ())
-    vocabDistrib = sc.broadcast (vocab)
-
-    terms = medline. \
-            map (lambda r : translate_record(r, vocabDistrib)). \
-            filter (lambda r : r). \
-            collect()
-    for mquant in terms:
-        triples = make_triples (mquant)
-        if len(triples) > 0:
-            logger.info ("MeSH Terms: [pmid={0}/date={1}] {2}".format (
-                mquant.pmid, mquant.date, triples))
-    '''
-
+    logger.info ("Time elapsed:--> {0}".format (elapsed))
 
 def main ():
     parser = argparse.ArgumentParser()
@@ -149,7 +123,7 @@ def main ():
     conf = MedlineConf (host           = args.host,
                         venv           = args.venv,
                         framework_name = args.name,
-                        data_root      = args.data)
+                        data_root      = args.data.replace ("file://", ""))
     analyze_medline (conf)
 
 if __name__ == "__main__":
