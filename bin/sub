@@ -243,7 +243,7 @@ execute_ct1 () {
 	--host  $MESOS_MASTER \
 	--name  "Chemotext2:Chemotext1(Medline)" \
 	--venv  $VENV \
-	--input $MEDLINE_DATA
+	--data  $DATA_HOME
 }
 execute_pmid () {
     #ARG_EXECUTOR_MEMORY=5G

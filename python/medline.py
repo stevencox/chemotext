@@ -106,10 +106,11 @@ def make_triples (mquant):
 def analyze_medline (conf):
     logger.info ("conf: {0}".format (conf))
     sc = SparkUtil.get_spark_context (conf)
-    medline_conn = Medline (sc, conf.input_xml, use_mem_cache=True)
+    Medline.data_root = conf.data_root
+    medline_conn = Medline (sc, conf, use_mem_cache=True)
 
     start = time.time()
-    pmid_df = medline_conn.load_pmid_date ()
+    pmid_df = medline_conn.load_pmid_date_concurrent ()
     elapsed = time.time() - start
     print ("TIME: ------------> {0}".format (elapsed))
 
@@ -142,13 +143,13 @@ def main ():
     parser = argparse.ArgumentParser()
     parser.add_argument("--host",  help="Mesos master host")
     parser.add_argument("--name",  help="Spark framework name")
-    parser.add_argument("--input", help="Medline XML.")    
+    parser.add_argument("--data",  help="Chemotext data root.")    
     parser.add_argument("--venv",  help="Path to Python virtual environment to use")
     args = parser.parse_args()
     conf = MedlineConf (host           = args.host,
                         venv           = args.venv,
                         framework_name = args.name,
-                        input_xml      = args.input)
+                        data_root      = args.data)
     analyze_medline (conf)
 
 if __name__ == "__main__":

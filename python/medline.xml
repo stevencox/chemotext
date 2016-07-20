@@ -165,4 +165,27 @@ tudies are also described along with suggestions for future cardiac surgery rese
    <OtherID Source="NLM">PMC4557565</OtherID>
 </MedlineCitation>
 
+<PubmedData>
+        <History>
+                <PubMedPubDate PubStatus="pubmed">
+                        <Year>1998</Year>
+                        <Month>5</Month>
+                        <Day>23</Day>
+                </PubMedPubDate>
+                <PubMedPubDate PubStatus="medline">
+                        <Year>1998</Year>
+                        <Month>5</Month>
+                        <Day>23</Day>
+                        <Hour>0</Hour>
+                        <Minute>1</Minute>
+                </PubMedPubDate>
+        </History>
+        <PublicationStatus>ppublish</PublicationStatus>
+        <ArticleIdList>
+                <ArticleId IdType="pubmed">0009475812</ArticleId>
+                <ArticleId IdType="medline">98143944</ArticleId>
+        </ArticleIdList>
+        <URL Type="Summary">http://www.mamef.mef.hr/CMJ</URL>
+</PubmedData>
+
 </MedlineCitationSet>
