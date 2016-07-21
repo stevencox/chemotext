@@ -10,7 +10,8 @@ import org.slf4j.LoggerFactory
   *  Add OpenNLP as a strategy for sentence segmentation.
   */
 class SentenceSegmenter {
-  val stream : InputStream = getClass.getResourceAsStream ("/models/en-sent.bin")
+//  val stream : InputStream = getClass.getResourceAsStream ("/models/en-sent.bin")
+  val stream : InputStream = getClass.getResourceAsStream ("/opennlp/en-sent.bin")
   val model = new SentenceModel (stream);
   val sentenceDetector = new SentenceDetectorME(model);
 

@@ -34,7 +34,7 @@ object ChemotextApp {
     Paths.get (chemotextConfig.outputPath, "chemotextOpts.json").toFile().getCanonicalPath ()
   }
 
-  def main(args: Array[String]) {
+  def main(args: Array[String], sc : SparkContext = null) {
 
     val opts = Scallop (args)
       .version("v1.0.0 (c) 2016 Chemotext2") // --version option is provided for you
@@ -95,15 +95,18 @@ object ChemotextApp {
     logger.info (s"ctdConfig       : ${JSONUtils.writeString(ctdConfig)}")
 
     // Connect to Spark
-    val conf = new SparkConf().setAppName (appName)
-    val sc = new SparkContext (conf)
+    var sparkContext = sc
+    if (sparkContext == null) {
+      val conf = new SparkConf().setAppName (appName)
+      sparkContext = new SparkContext (conf)
+    }
 
     // Create and execute the pipeline
     val chemotext = new ChemotextContext (
-      sparkContext   = sc,
+      sparkContext    = sparkContext,
       chemotextConfig = chemotextConfig,
-      lexerConf      = tmChemConf,
-      ctdConfig      = ctdConfig)
+      lexerConf       = tmChemConf,
+      ctdConfig       = ctdConfig)
 
     chemotext.execute ()    
   }
