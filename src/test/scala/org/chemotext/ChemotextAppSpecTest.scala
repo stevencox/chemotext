@@ -128,25 +128,25 @@ class ChemotextAppSpecTest extends FunSuite with SharedSparkContext {
   {
     var matchCount = 0
     for (p <- binaries) {
-        for (pair <- pairs) {
-          //println (s" -- Comparing $kind: ${p.L} -> ${p.R} =?= ${pair(0)} -> ${pair(1)}")
-          if (p.L == pair(0) && p.R == pair(1)) {
-            println (s" -- Matched $kind: ${p.L} -> ${p.R}")
-            if (pair.length == 3) {
-              if (p.fact) {
-                if (p.refs.contains (pair (2))) {
-                  println (s" -- Matched PubMed ID reference in binary extracted from CTD: ${pair(2)}")
-                  matchCount += 1
-                } else {
-                  // a ref is expected but not matched for this fact.
-                }
+      for (pair <- pairs) {
+        //println (s" -- Comparing $kind: ${p.L} -> ${p.R} =?= ${pair(0)} -> ${pair(1)}")
+        if (p.L == pair(0) && p.R == pair(1)) {
+          println (s" -- Matched $kind: ${p.L} -> ${p.R}")
+          if (pair.length == 3) {
+            if (p.fact) {
+              if (p.refs.contains (pair (2))) {
+                println (s" -- Matched PubMed ID reference in binary extracted from CTD: ${pair(2)}")
+                matchCount += 1
+              } else {
+                // a ref is expected but not matched for this fact.
               }
-            } else {
-              // not expecting a fact reference so we're done matching.
-              matchCount += 1
             }
+          } else {
+            // not expecting a fact reference so we're done matching.
+            matchCount += 1
           }
         }
+      }
     }
     matchCount
   }
