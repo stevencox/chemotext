@@ -15,18 +15,6 @@
          </publisher>
       </journal-meta>
       <article-meta>
-<!--
-
-fact ('10,10-bis(4-pyridinylmethyl)-9(10h)-anthracenone->kcnq1 i=18568022', <chemotext_util.Fact object at 0x10c8b2f50>)
-fact ('10,10-bis(4-pyridinylmethyl)-9(10h)-anthracenone->kcnq2 i=15634793', <chemotext_util.Fact object at 0x10c8b27d0>)
-fact ('10,10-bis(4-pyridinylmethyl)-9(10h)-anthracenone->kcnq2 i=20208034', <chemotext_util.Fact object at 0x10c8b2890>)
-fact ('10,10-bis(4-pyridinylmethyl)-9(10h)-anthracenone->kcnq3 i=20208034', <chemotext_util.Fact object at 0x10c8b2610>)
-fact ('10,10-bis(4-pyridinylmethyl)-9(10h)-anthracenone->developmental disabilities i=20805988', <chemotext_util.Fact object at 0x10c8b2790>)
-fact ('10,10-bis(4-pyridinylmethyl)-9(10h)-anthracenone->diabetes mellitus, type 2 i=18711366', <chemotext_util.Fact object at 0x10c8b2810>)
-fact ('10,10-bis(4-pyridinylmethyl)-9(10h)-anthracenone->diabetes mellitus, type 2 i=18711367', <chemotext_util.Fact object at 0x10c8b25d0>)
-fact ('10,10-bis(4-pyridinylmethyl)-9(10h)-anthracenone->diabetes mellitus, type 2 i=26551672', <chemotext_util.Fact object at 0x10c8b2650>)
-
--->
          <article-id pub-id-type="pmid">20805988</article-id>
          <article-id pub-id-type="pmc">2976985</article-id>
          <article-id pub-id-type="publisher-id">9226</article-id>
@@ -211,6 +199,12 @@ fact ('10,10-bis(4-pyridinylmethyl)-9(10h)-anthracenone->diabetes mellitus, type
          This is test data.
 
          The 10,10-bis(4-pyridinylmethyl)-9(10H)-anthracenone influences developmental disabilities which has something to do with osteoarthritis and Diabetes Mellitus, Type 2.
+
+
+         Here we want to ensure that we eliminate duplicate A/B pairs in favor of the one with the shortest distance.
+
+         10,10-bis(4-pyridinylmethyl)-9(10h)-anthracenone binds kcnq1 is our first occurrence and 10,10-bis(4-pyridinylmethyl)-9(10h)-anthracenone binds to the substance kcnq1 is our second occurrence.
+
 
        </p>
      </sec>

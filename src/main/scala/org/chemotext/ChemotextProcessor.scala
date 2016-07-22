@@ -309,7 +309,8 @@ object ChemotextProcessor {
     }
     buf.toList
   }
-
+  /*
+   // breaks junit tests.
   val sentenceSegmenter = new SentenceSegmenter ()
   def getSentences0 (text : String) = {
     val buf = new ListBuffer[String] ()
@@ -319,6 +320,7 @@ object ChemotextProcessor {
     }
     buf.toList
   }
+   */
 
   /**
     * Record locations of words within the document.
