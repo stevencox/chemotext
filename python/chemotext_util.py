@@ -65,6 +65,8 @@ class Binary(object):
         self.refs = refs
         self.pmid = pmid
     def __str__ (self):
+        return self.__repr__()
+    def __repr__ (self):
         return """ id:{0}, L:{1}, R:{2}, docDist:{3}, paraDist:{4}, sentDist:{5}, code:{6}, fact:{7}, refs:{8}, pmid:{9}""".format (
             self.id, self.L, self.R, self.docDist, self.paraDist, self.sentDist, self.code, self.fact, self.refs, self.pmid)
 
@@ -144,6 +146,15 @@ class Article(object):
         self.BC = BC
         self.AC = AC
         self.ABC = ABC
+
+class ArticleEncoder(JSONEncoder):
+    def default(self, obj):
+        # Convert objects to a dictionary of their representation
+        d = { '__class__':obj.__class__.__name__, 
+              '__module__':obj.__module__,
+              }
+        d.update(obj.__dict__)
+        return d
 
 class ArticleDecoder(json.JSONDecoder):
     def decode(self, text):
@@ -254,17 +265,24 @@ class SerializationUtil(object):
         return result
 
 class Conf(object):
-    def __init__(self, host, venv, framework_name, input_dir):
+    def __init__(self, host, venv, framework_name, input_dir, output_dir=None):
         self.host = host
         self.venv = venv
         self.framework_name = framework_name
         self.input_dir = input_dir
+        self.output_dir = output_dir
 
 class SparkConf(Conf):
-    def __init__(self, host, venv, framework_name):
+    def __init__(self, host, venv, framework_name, parts=0):
         self.host = host
         self.venv = venv
         self.framework_name = framework_name
+        self.parts = parts
+class EquivConf(object):
+    def __init__(self, spark_conf, input_dir, output_dir):
+        self.spark_conf = spark_conf
+        self.input_dir = input_dir
+        self.output_dir = output_dir
 
 class EvaluateConf(Conf):
     def __init__(self, host, venv, framework_name, input_dir, output_dir, slices, parts, ctdAB, ctdBC, ctdAC):
