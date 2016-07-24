@@ -65,20 +65,20 @@ def analyze_medline (conf):
 
 def main ():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--host",  help="Mesos master host")
-    parser.add_argument("--name",  help="Spark framework name")
-    parser.add_argument("--data",  help="Chemotext data root.")    
-    parser.add_argument("--venv",  help="Path to Python virtual environment to use")
+    parser.add_argument("--host", help="Mesos master host")
+    parser.add_argument("--name", help="Spark framework name")
+    parser.add_argument("--data", help="Chemotext data root.")    
+    parser.add_argument("--venv", help="Path to Python virtual environment to use")
     parser.add_argument('--pmid', action='store_true', default=False)
-
     args = parser.parse_args()
-    conf = MedlineConf (host           = args.host,
-                        venv           = args.venv,
-                        framework_name = args.name,
-                        data_root      = args.data.replace ("file://", ""),
-                        gen_pmid_map   = args.pmid)
-    analyze_medline (conf)
 
+    analyze_medline (
+        MedlineConf (host           = args.host,
+                     venv           = args.venv,
+                     framework_name = args.name,
+                     data_root      = args.data.replace ("file://", ""),
+                     gen_pmid_map   = args.pmid ))
+    
 if __name__ == "__main__":
     main ()
 

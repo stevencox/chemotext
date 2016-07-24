@@ -6,7 +6,6 @@ import json
 import os
 import logging
 import math
-#import numpy
 import re
 import shutil
 import sys
@@ -29,12 +28,13 @@ from pyspark.sql import SQLContext
 
 logger = LoggingUtil.init_logging (__file__)
 
+'''
 def count_binaries (article_path, input_dir):
-    ''' This is a function mapped to individual article summaries on distributed Spark workers.
+    This is a function mapped to individual article summaries on distributed Spark workers.
     For each article, it loads it, and all its binaries.
     For each binary, it counts binaries discovered before its verifiable discovery reference date.
     It also counts false positives - non verifiable binary assertions.
-    '''
+
     MIN_DATE = SUtil.parse_date ('1-1-1000')
     MAX_DATE = SUtil.parse_date ('1-1-9000')
     logger = LoggingUtil.init_logging (__file__)
@@ -65,7 +65,6 @@ def count_binaries (article_path, input_dir):
             false_positive = false_positive + 1
     return Quant (before, not_before, false_positive)
 
-
 def load_reference_binaries (sqlContext, ctdRef, L_index, R_index):
     return sqlContext.read.                 \
         format('com.databricks.spark.csv'). \
@@ -74,8 +73,8 @@ def load_reference_binaries (sqlContext, ctdRef, L_index, R_index):
         map (lambda a : (a["C{0}".format (L_index)].lower (),
                          a["C{0}".format (R_index)].lower ()) )
 
+
 def count_false_negatives_by_type (sqlContext, ctdRef, articles, L_index, R_index, tuple_type):
-    '''
     Read a CSV formatted CTD file into a Spark RDD.
     Filter the RDD, ref, to create a list of reference binaries.
     Read designated articles into a second RDD and filter to binaries with references.
@@ -87,16 +86,7 @@ def count_false_negatives_by_type (sqlContext, ctdRef, articles, L_index, R_inde
     :param L_index: Index of the left term in this CTD file.
     :param R_index: Index of the right term in this CTD file.
     :param tupleType: AB/BC/AC
-    '''
     ref = load_reference_binaries (sqlContext, ctdRef, L_index, R_index)
-    '''
-    ref = sqlContext.read.                    \
-          format('com.databricks.spark.csv'). \
-          options(comment='#').               \
-          load(ctdRef).rdd.                   \
-          map (lambda a : (a["C{0}".format (L_index)].lower (),
-                           a["C{0}".format (R_index)].lower ()) )
-    '''
     generated = articles.                                     \
                 flatMap (lambda a : a.__dict__[tuple_type] ). \
                 filter  (lambda a : a.fact ).                 \
@@ -104,22 +94,21 @@ def count_false_negatives_by_type (sqlContext, ctdRef, articles, L_index, R_inde
     return ref.subtract (generated).count ()
 
 def count_false_negatives (sc, conf, article_paths):
-    '''
+
     Counts and sums false negatives for each category of binaries.
 
     :param sc: Spark Context
     :param conf: Configuration
     :param articles: List of articles to 
-    '''
+
     sqlContext = SQLContext(sc)
     articles = article_paths.map (lambda a : SUtil.read_article (a) )
     ab = count_false_negatives_by_type (sqlContext, conf.ctdAB, articles, 0, 3, "AB")
     bc = count_false_negatives_by_type (sqlContext, conf.ctdBC, articles, 0, 2, "BC")
     ac = count_false_negatives_by_type (sqlContext, conf.ctdAC, articles, 0, 3, "AC")
     return ab + bc + ac
-    
+
 def evaluate (conf):
-    '''
     Evaluate the output of a Chemotext2 run.
 
     :param conf: The configuration to work with.
@@ -134,7 +123,6 @@ def evaluate (conf):
     fn = sum CTD assertions found in no preprocessed article
     precision = tp / ( tp + fp)
     recall = tp / ( tp + fn )
-    '''
     logger.info ("Evaluating Chemotext2 output: {0}".format (conf.input_dir))
     sc = SparkUtil.get_spark_context (conf)
     articles = glob.glob (os.path.join (conf.input_dir, "*fxml.json"))
@@ -156,7 +144,7 @@ def evaluate (conf):
         logger.info ("precision: {0}, recall: {1}".format (precision, recall))
     else:
         logger.info ("precision/recall can't be calculated. true_positives: {0}".format (true_positives))
-
+'''
 
 #-----------------------------------------------------------------------------------------------
 #-- V2.0 -
@@ -213,7 +201,7 @@ def distance (b):
     b.dist = 1000000 * b.paraDist + 100000 * b.sentDist + b.docDist
     return b
 
-def get_guesses (sc, conf, slices, slice_n):
+def get_guesses (sc, conf, slices=1, slice_n=1):
     articles = glob.glob (os.path.join (conf.input_dir, "*fxml.json"))
     slice_size = int (len (articles) / slices)
     offset = slice_size * slice_n
@@ -272,22 +260,34 @@ def annotate (guesses, facts, article_pmids):
 def evaluate_articles (conf):
     logger.info ("Evaluating Chemotext2 output: {0}".format (conf.input_dir))
     sc = SparkUtil.get_spark_context (conf)
-
     logger.info ("Loading facts")
     facts = get_facts (sc, conf)
-    logger.info ("Loading guesses")
-
     for slice_n in range (0, conf.slices):
         output_dir = os.path.join (conf.output_dir, "annotated", str(slice_n))
         if os.path.exists (output_dir):
             logger.info ("Skipping existing directory {0}".format (output_dir))
         else:
+            logger.info ("Loading guesses")
             guesses, article_pmids = get_guesses (sc, conf, conf.slices, slice_n)
             annotated = annotate (guesses, facts, article_pmids)
             logger.info ("Generating annotated output for " + output_dir)
             annotated.\
                 map(lambda b : json.dumps (b, cls=BinaryEncoder)). \
                 saveAsTextFile ("file://" + output_dir)
+
+def evaluate_articles0 (conf):
+    logger.info ("Evaluating Chemotext2 output: {0}".format (conf.input_dir))
+    sc = SparkUtil.get_spark_context (conf)
+    logger.info ("Loading facts")
+    facts = get_facts (sc, conf)
+    output_dir = os.path.join (conf.output_dir, "annotated", str(slice_n))
+    logger.info ("Loading guesses")
+    guesses, article_pmids = get_guesses (sc, conf, conf.slices, slice_n)
+    annotated = annotate (guesses, facts, article_pmids)
+    logger.info ("Generating annotated output for " + output_dir)
+    annotated.\
+        map(lambda b : json.dumps (b, cls=BinaryEncoder)). \
+        saveAsTextFile ("file://" + output_dir)
 
 def train_log_reg (sc, annotated):
     def label (b):
