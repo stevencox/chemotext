@@ -240,8 +240,9 @@ execute_pmidmap () {
     execute_ct1 --pmid --name "Chemotext2:CT1(PMID->Date)"
 }
 execute_equivset () {
-    INPUTPATH=/projects/stars/var/chemotext/output.mesh.full.2016-07-09
-    EQUIV_OUTPUT=/projects/stars/var/chemotext/equiv
+#    INPUTPATH=/projects/stars/var/chemotext/output.mesh.full.2016-07-09
+#    EQUIV_OUTPUT=/projects/stars/var/chemotext/equiv
+    EQUIV_OUTPUT=$DATA_HOME/equiv
     spark \
 	--py-files python/chemotext_util.py \
 	$APP_HOME/python/eset.py \

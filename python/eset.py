@@ -82,7 +82,9 @@ def make_equiv_set (L, R, threshold=200):
                     paraDist = abs ( left.paraPos - right.paraPos ),
                     code = 1,
                     fact = False,
-                    refs = [])
+                    refs = [],
+                    leftDocPos = left.docPos,
+                    rightDocPos = right.docPos) 
                 if key in pairs:
                     pairs[key].append ( EqBinary (binary, left, right) )
                 else:
@@ -102,10 +104,14 @@ def make_equiv_set (L, R, threshold=200):
             print ("     2. canonical: {0}".format (canonical))
             # Min distance pair
             REk_key.append (canonical.binary)
-            for e in Ek:
-                if e.L.docPos == canonical.L.docPos or e.R.docPos == canonical.R.docPos:
-                    Ek.remove (e)
-                    log_discard (e)
+
+            #for e in Ek:
+            #    if e.L.docPos == canonical.L.docPos or e.R.docPos == canonical.R.docPos:
+            #        Ek.remove (e)
+            #        log_discard (e)            
+            #log_discard (canonical)
+            Ek = [ e for e in Ek if not (e.L.docPos == canonical.L.docPos or e.R.docPos == canonical.R.docPos) ]
+
         log_reduced_set (REk_key, original_length, key)
         REk = REk + REk_key
     logger.info ("REk: {0}".format (REk))
@@ -114,6 +120,7 @@ def make_equiv_set (L, R, threshold=200):
 def get_article_equiv_set (article):
     article.AB = make_equiv_set (article.A, article.B)
     article.BC = make_equiv_set (article.B, article.C)
+    article.BB = make_equiv_set (article.B, article.B)
     return article
         
 def write_article (article, path):

@@ -53,7 +53,8 @@ class WordPosition(object):
             self.word, self.docPos, self.paraPos, self.sentPos)
 
 class Binary(object):
-    def __init__(self, id, L, R, docDist, paraDist, sentDist, code, fact, refs, pmid=-1):
+    def __init__(self, id, L, R, docDist, paraDist, sentDist, code, fact, refs, pmid=-1,
+                 leftDocPos = None, rightDocPos = None):
         self.id = id
         self.L = L
         self.R = R
@@ -64,11 +65,14 @@ class Binary(object):
         self.fact = fact
         self.refs = refs
         self.pmid = pmid
+        self.leftDocPos = leftDocPos
+        self.rightDocPos = rightDocPos
     def __str__ (self):
         return self.__repr__()
     def __repr__ (self):
-        return """ id:{0}, L:{1}, R:{2}, docDist:{3}, paraDist:{4}, sentDist:{5}, code:{6}, fact:{7}, refs:{8}, pmid:{9}""".format (
-            self.id, self.L, self.R, self.docDist, self.paraDist, self.sentDist, self.code, self.fact, self.refs, self.pmid)
+        return """ id:{0}, L:{1}, R:{2}, docDist:{3}, paraDist:{4}, sentDist:{5}, code:{6}, fact:{7}, refs:{8}, pmid:{9}, ldpos:{10}, rdpos:{11}""".format (
+            self.id, self.L, self.R, self.docDist, self.paraDist, self.sentDist, self.code, self.fact, self.refs, self.pmid,
+            self.leftDocPos, self.rightDocPos)
 
 class Fact (Binary):
     def __init__(self, L, R, pmid):
