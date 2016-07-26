@@ -31,8 +31,8 @@ def get_article (article_path):
     logger.info ("Article: @-- {0}".format (article_path))
     return SUtil.read_article (article_path)
 def get_articles (sc, conf):
-    #articles = glob.glob (os.path.join (conf.input_dir, "*fxml.json"))
-    articles = glob.glob (os.path.join (conf.input_dir, "Mol_Cancer_2008_May_12_7_37*fxml.json"))
+    articles = glob.glob (os.path.join (conf.input_dir, "*fxml.json"))
+    #articles = glob.glob (os.path.join (conf.input_dir, "Mol_Cancer_2008_May_12_7_37*fxml.json"))
     return sc.parallelize (articles, conf.spark_conf.parts).map (lambda p : get_article (p))
 
 class EqBinary(object):
@@ -46,7 +46,7 @@ class EqBinary(object):
         return "l:{0} r:{1} dist:{2} lpos:{3} rpos:{4}".format (
             self.binary.L, self.binary.R, self.binary.docDist, self.L.docPos, self.R.docPos)
 
-log_trace = True
+log_trace = False
 def log_sorted (s):
     if log_trace:
         print ("   Sorted")
@@ -64,15 +64,17 @@ def log_reduced_set (REk_key, original_length, key):
         for e in REk_key:
             print ("   4. REk_key: l:{0} r:{1} dist:{2}".format (e.L, e.R, e.docDist))
 
-def make_equiv_set (L, R):
+def make_equiv_set (L, R, threshold=200):
+    logger = LoggingUtil.init_logging (__file__)
     pairs = {}
+    # Create all possible pairs
     for left in L:
         for right in R:
             docDist = abs (left.docPos - right.docPos)
-            if docDist < 200:
+            if docDist < threshold:
                 key = "{0}@{1}".format (left.word, right.word)
                 binary = Binary (
-                    id = 0, # id
+                    id = 0,
                     L = left.word,
                     R = right.word,
                     docDist = docDist,
@@ -81,7 +83,6 @@ def make_equiv_set (L, R):
                     code = 1,
                     fact = False,
                     refs = [])
-                #print ("making binary: {0}".format (binary))
                 if key in pairs:
                     pairs[key].append ( EqBinary (binary, left, right) )
                 else:
@@ -107,6 +108,7 @@ def make_equiv_set (L, R):
                     log_discard (e)
         log_reduced_set (REk_key, original_length, key)
         REk = REk + REk_key
+    logger.info ("REk: {0}".format (REk))
     return REk
 
 def get_article_equiv_set (article):
@@ -115,14 +117,25 @@ def get_article_equiv_set (article):
     return article
         
 def write_article (article, path):
-    subdir = os.path.join (path, article.fileName[0])
+    subdir = os.path.join (path, article.fileName[0], article.fileName[1])
     if not os.path.exists (subdir):
-        os.mkdir (subdir)
+        os.makedirs (subdir)
     output_path = os.path.join (subdir, "{0}.json".format (article.fileName))
     with open (output_path, "w") as stream:
         stream.write (json.dumps (article, cls=ArticleEncoder, indent=2))
-        stream.flush ()
     return article
+
+def process_article (article, output_dir):
+    result = []
+    subdir = os.path.join (output_dir, article.fileName[0], article.fileName[1])
+    if not os.path.exists (subdir):
+        os.makedirs (subdir)
+    output_path = os.path.join (subdir, "{0}.json".format (article.fileName))
+    if os.path.exists (output_path):
+        print "Skipping {0}".format (output_path)
+    else:
+        result.append (write_article (get_article_equiv_set (article), output_dir).id)
+    return result
 
 def trace_set (trace_level, label, rdd):
     if (logger.getEffectiveLevel() > trace_level):
@@ -130,27 +143,29 @@ def trace_set (trace_level, label, rdd):
             print ("  {0}> {1}->{2}".format (label, g[0], g[1]))
 
 def execute (conf):
-    logger.info ("Evaluating Chemotext2 output: {0}".format (conf.input_dir))
+    logger.info ("Generating equivalent sets output: {0}".format (conf.input_dir))
     output_dir = os.path.join (conf.output_dir, "equiv_sets")
     articles = glob.glob (os.path.join (conf.input_dir, "Mol_Cancer_2008_May_12_7_37*fxml.json"))
     a = get_article_equiv_set (get_article (articles[0]))
-    if os.path.exists (output_dir):
-        shutil.rmtree (output_dir)
+#    if os.path.exists (output_dir):
+#        shutil.rmtree (output_dir)
     os.mkdir (output_dir)
     write_article (a, output_dir)
 
-def x():
+def execute (conf):
     sc = SparkUtil.get_spark_context (conf.spark_conf)
-    equiv_sets = get_articles (sc, conf).map (lambda a : get_article_equiv_set (a))
-    output_dir = os.path.join (conf.output_dir, "equiv_sets")
-    logger.info ("Generating annotated output for " + output_dir)
-    if os.path.exists (output_dir):
-        shutil.rmtree (output_dir)
-    os.mkdir (output_dir)
-    equiv_sets.map (lambda a : write_article (a, output_dir)).cache ()
-    for e in equiv_sets.collect():
-        print ("{0}".format (json.dumps (e, cls=ArticleEncoder, indent=2)))
-        write_article (e, output_dir)
+    #if os.path.exists (conf.output_dir):
+    #    shutil.rmtree (conf.output_dir)
+    if not os.path.exists (conf.output_dir):
+        os.mkdir (conf.output_dir)
+    logger.info ("Generating equivalent sets from {0} to {1}".format (conf.input_dir, conf.output_dir))
+    get_articles (sc, conf).   \
+        flatMap (lambda a : process_article (a, conf.output_dir)). \
+        collect ()
+    '''
+        map (lambda a : write_article (get_article_equiv_set (a),
+                                       conf.output_dir).id).collect ()
+    '''
 
 def main ():
     parser = argparse.ArgumentParser()

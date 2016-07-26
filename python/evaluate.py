@@ -1,6 +1,7 @@
 from __future__ import division
 import argparse
 import datetime
+import fnmatch
 import glob
 import json
 import os
@@ -23,132 +24,7 @@ from chemotext_util import SerializationUtil as SUtil
 from chemotext_util import SparkUtil
 from pyspark.sql import SQLContext
 
-#from pyspark.mllib.classification import LogisticRegressionWithLBFGS, LogisticRegressionModel
-#from pyspark.mllib.regression import LabeledPoint
-
 logger = LoggingUtil.init_logging (__file__)
-
-'''
-def count_binaries (article_path, input_dir):
-    This is a function mapped to individual article summaries on distributed Spark workers.
-    For each article, it loads it, and all its binaries.
-    For each binary, it counts binaries discovered before its verifiable discovery reference date.
-    It also counts false positives - non verifiable binary assertions.
-
-    MIN_DATE = SUtil.parse_date ('1-1-1000')
-    MAX_DATE = SUtil.parse_date ('1-1-9000')
-    logger = LoggingUtil.init_logging (__file__)
-    logger.info ("Article: @-- {0}".format (article_path))
-    article = SUtil.read_article (article_path)
-    before = 0
-    not_before = 0
-    false_positive = 0
-    pmids = SUtil.get_pmid_map (os.path.join (input_dir, "pmid_date.json"))
-    binaries = article.AB + article.BC + article.AC
-    doc_date = SUtil.parse_date (article.date)
-    for binary in binaries:
-        if binary.fact:
-            refs = binary.refs
-            if refs:
-                logger.debug ("fact: {0}".format (binary))
-                ref_dates = [ SUtil.parse_date (pmids[ref]) if ref in pmids else None for ref in refs ]
-                ref_dates = [ d for d in ref_dates if d ]
-                min_ref_date = min (ref_dates) if len(ref_dates) > 0 else MIN_DATE
-                max_ref_date = max (ref_dates) if len(ref_dates) > 0 else MAX_DATE
-                if doc_date < min_ref_date:
-                    logger.info ("  -- is_before")
-                    before = before + 1
-                else:
-                    logger.info ("  -- is_not_before")
-                    not_before = not_before + 1
-        else:
-            false_positive = false_positive + 1
-    return Quant (before, not_before, false_positive)
-
-def load_reference_binaries (sqlContext, ctdRef, L_index, R_index):
-    return sqlContext.read.                 \
-        format('com.databricks.spark.csv'). \
-        options(comment='#').               \
-        load(ctdRef).rdd.                   \
-        map (lambda a : (a["C{0}".format (L_index)].lower (),
-                         a["C{0}".format (R_index)].lower ()) )
-
-
-def count_false_negatives_by_type (sqlContext, ctdRef, articles, L_index, R_index, tuple_type):
-    Read a CSV formatted CTD file into a Spark RDD.
-    Filter the RDD, ref, to create a list of reference binaries.
-    Read designated articles into a second RDD and filter to binaries with references.
-    Subtract generated facts from the CTD facts to create the false negative count.
-
-    :param sqlContext: Spark SQL context.
-    :param ctdRef: Comparative Toxicogenomics Database file.
-    :param articles: List of articles to analyze.
-    :param L_index: Index of the left term in this CTD file.
-    :param R_index: Index of the right term in this CTD file.
-    :param tupleType: AB/BC/AC
-    ref = load_reference_binaries (sqlContext, ctdRef, L_index, R_index)
-    generated = articles.                                     \
-                flatMap (lambda a : a.__dict__[tuple_type] ). \
-                filter  (lambda a : a.fact ).                 \
-                map     (lambda a : (a.L, a.R))
-    return ref.subtract (generated).count ()
-
-def count_false_negatives (sc, conf, article_paths):
-
-    Counts and sums false negatives for each category of binaries.
-
-    :param sc: Spark Context
-    :param conf: Configuration
-    :param articles: List of articles to 
-
-    sqlContext = SQLContext(sc)
-    articles = article_paths.map (lambda a : SUtil.read_article (a) )
-    ab = count_false_negatives_by_type (sqlContext, conf.ctdAB, articles, 0, 3, "AB")
-    bc = count_false_negatives_by_type (sqlContext, conf.ctdBC, articles, 0, 2, "BC")
-    ac = count_false_negatives_by_type (sqlContext, conf.ctdAC, articles, 0, 3, "AC")
-    return ab + bc + ac
-
-def evaluate (conf):
-    Evaluate the output of a Chemotext2 run.
-
-    :param conf: The configuration to work with.
-
-    load the pmid -> date map 
-    foreach preprocessed article
-       for all asserted binaries found in CTD
-          b: sum corroborated binaries asserted in articles predating their references
-          nb: sum binaries asserted not before reference dates
-          tp += b + nb
-    fp += sum asserted binaries not in CTD
-    fn = sum CTD assertions found in no preprocessed article
-    precision = tp / ( tp + fp)
-    recall = tp / ( tp + fn )
-    logger.info ("Evaluating Chemotext2 output: {0}".format (conf.input_dir))
-    sc = SparkUtil.get_spark_context (conf)
-    articles = glob.glob (os.path.join (conf.input_dir, "*fxml.json"))
-    articles = sc.parallelize (articles [0:200])
-    quanta = articles.map (lambda article : count_binaries (article, conf.input_dir))
-
-    before = quanta.map (lambda q : q.before).sum()
-    not_before = quanta.map (lambda q : q.not_before).sum ()
-    false_positives = quanta.map (lambda q : q.false_positives).sum ()
-    true_positives = before + not_before
-    false_negatives = count_false_negatives (sc, conf, articles)
-
-    logger.info ("before: {0} not_before: {1} false_positives: {2} true_positives: {3} false_negatives {4}".format (
-        before, not_before, false_positives, true_positives, false_negatives))
-    
-    if true_positives > 0:
-        precision = true_positives / ( true_positives + false_positives )
-        recall = true_positives / ( true_positives + false_negatives )
-        logger.info ("precision: {0}, recall: {1}".format (precision, recall))
-    else:
-        logger.info ("precision/recall can't be calculated. true_positives: {0}".format (true_positives))
-'''
-
-#-----------------------------------------------------------------------------------------------
-#-- V2.0 -
-#-----------------------------------------------------------------------------------------------
 
 def make_key (L, R, pmid):
     return "{0}->{1} i={2}".format (L, R, pmid)
@@ -195,17 +71,18 @@ def get_article_guesses (article):
     result = []
     for g in guesses:
         if not g.L in skiplist and not g.R in skiplist:
+            g.pmid = article.id
             result.append (g)
     return result
 def distance (b):
     b.dist = 1000000 * b.paraDist + 100000 * b.sentDist + b.docDist
     return b
 
-def get_guesses (sc, conf, slices=1, slice_n=1):
-    articles = glob.glob (os.path.join (conf.input_dir, "*fxml.json"))
+def get_guesses (sc, conf, articles, slices=1, slice_n=1):
     slice_size = int (len (articles) / slices)
     offset = slice_size * slice_n
-    logger.info ("   -- Evaluate execution (slice_size=>{0}, offset=>{1})".format (slice_size, offset))
+    logger.info ("   -- Evaluate execution (input=:{0},articles:{1},slice_size:{2}, offset:{3})".
+                 format (conf.input_dir, len(articles), slice_size, offset)) 
     articles = articles [ offset : offset + slice_size ]
     articles = sc.parallelize (articles, conf.parts)
     articles = articles.map (lambda p : get_article (p))
@@ -257,6 +134,32 @@ def annotate (guesses, facts, article_pmids):
             union (false_negative)
     return union.map (lambda v: v[1])
 
+def get_articles (conf):
+    count = 0
+    articles = []
+    files = "evalfiles.json"
+    if os.path.exists (files):
+        with open (files, "r") as stream:
+            articles = json.loads (stream.read ())
+    else:
+        for root, dirnames, filenames in os.walk (conf.input_dir):
+            for filename in fnmatch.filter(filenames, '*.fxml.json'):
+                articles.append(os.path.join(root, filename))
+                count = count + 1
+                if (count % 10000 == 0):
+                    logger.info ("   ...{0} files".format (len (articles)))
+        with open (files, "w") as stream:
+            stream.write (json.dumps (articles, indent=2))
+    return articles
+
+def is_training (b):
+    result = False
+    try:
+        result = int(b.pmid) % 2 == 0
+    except ValueError:
+        print ("(--) pmid: {0}".format (b.pmid))
+    return result
+
 def evaluate_articles (conf):
     logger.info ("Evaluating Chemotext2 output: {0}".format (conf.input_dir))
     sc = SparkUtil.get_spark_context (conf)
@@ -267,13 +170,26 @@ def evaluate_articles (conf):
         if os.path.exists (output_dir):
             logger.info ("Skipping existing directory {0}".format (output_dir))
         else:
+            logger.info ("Listing input files")
+            articles = get_articles (conf)
+
             logger.info ("Loading guesses")
-            guesses, article_pmids = get_guesses (sc, conf, conf.slices, slice_n)
+            guesses, article_pmids = get_guesses (sc, conf, articles, conf.slices, slice_n)
             annotated = annotate (guesses, facts, article_pmids)
             logger.info ("Generating annotated output for " + output_dir)
+            os.makedirs (output_dir)
+            '''
             annotated.\
                 map(lambda b : json.dumps (b, cls=BinaryEncoder)). \
                 saveAsTextFile ("file://" + output_dir)
+            '''
+            train = annotated.filter (lambda b : is_training (b)).map(lambda b : json.dumps (b, cls=BinaryEncoder))
+            train_out_dir = os.path.join (output_dir, 'train')
+            train.saveAsTextFile ("file://" + train_out_dir)
+            
+            test  = annotated.filter (lambda b : not is_training (b)).map(lambda b : json.dumps (b, cls=BinaryEncoder))
+            test_out_dir = os.path.join (output_dir, 'test')
+            test.saveAsTextFile ("file://" + test_out_dir)
 
 def evaluate_articles0 (conf):
     logger.info ("Evaluating Chemotext2 output: {0}".format (conf.input_dir))
