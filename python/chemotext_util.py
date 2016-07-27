@@ -136,7 +136,7 @@ class Paragraph(object):
         self.sentences = sentences
 
 class Article(object):
-    def __init__(self, fileName, date, id, generator, raw, paragraphs, A, B, C, AB, BC, AC, ABC):
+    def __init__(self, fileName, date, id, generator, raw, paragraphs, A, B, C, AB, BC, AC, BB, ABC):
         self.fileName = fileName
         self.date = date
         self.id = id
@@ -149,6 +149,7 @@ class Article(object):
         self.AB = AB
         self.BC = BC
         self.AC = AC
+        self.BB = BB
         self.ABC = ABC
 
 class ArticleEncoder(JSONEncoder):
@@ -183,7 +184,9 @@ class ArticleDecoder(json.JSONDecoder):
                     sentPos = i['sentPos']))
 
         binaries = {}
-        for k in [ 'AB', 'BC', 'AC' ]:
+        for k in [ 'AB', 'BC', 'AC', 'BB' ]:
+            if not k in obj:
+                continue
             binaries[k] = []
             items = obj [k]
             for i in items:
@@ -221,6 +224,7 @@ class ArticleDecoder(json.JSONDecoder):
             AB         = binaries ['AB'],
             BC         = binaries ['BC'],
             AC         = binaries ['AC'],
+            BB         = binaries ['BB'] if 'BB' in binaries else [],
             ABC        = triples
         )
 
