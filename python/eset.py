@@ -63,7 +63,7 @@ def log_reduced_set (REk_key, original_length, key):
     if log_trace:
         print ("Reduced length from {0} to {1} for key {2}".format (original_length, len (REk_key), key))
         for e in REk_key:
-            print ("   4. REk_key: l:{0} r:{1} dist:{2}".format (e.L, e.R, e.docDist))
+            print ("     4. REk_key: l:{0} r:{1} dist:{2}".format (e.L, e.R, e.docDist))
 
 skiplist = [ 'for', 'was', 'long', 'her' ]
 
@@ -96,13 +96,14 @@ def make_equiv_set (L, R, threshold=200):
                     pairs[key].append ( EqBinary (binary, left, right) )
                 else:
                     pairs[key] = [ EqBinary (binary, left, right) ]
-                logger.debug ("--{0}-binary: {1}".format (key, binary))
+                logger.info ("--{0}-binary: {1}".format (key, binary))
 
     # GroupBy (x,y)
     REk = []
     for key in pairs:
         REk_key = []
-        #print ("key: {0}".format (key))
+        if log_trace:
+            print ("key: {0}".format (key))
         Ek = pairs[key]
         original_length = len (Ek)
         # Sort
@@ -110,13 +111,22 @@ def make_equiv_set (L, R, threshold=200):
         while len(Ek) > 0:
             log_sorted (Ek)
             canonical = Ek[0]
-            #print ("     2. canonical: {0}".format (canonical))
+            if log_trace:
+                print ("     2. canonical: {0}".format (canonical))
             # Min distance pair
             REk_key.append (canonical.binary)
-            Ek = [ e for e in Ek if not (e.L.docPos == canonical.L.docPos or e.R.docPos == canonical.R.docPos) ]
+            old = Ek
+            Ek = [ e for e in Ek if not (e.L.docPos == canonical.L.docPos or 
+                                         e.R.docPos == canonical.R.docPos) ]
+            if log_trace:
+                for o in old:
+                    if o not in Ek:
+                        print "     3. discard {0}".format (o)
+                        
         log_reduced_set (REk_key, original_length, key)
         REk = REk + REk_key
-    #logger.info ("REk: {0}".format (REk))
+    if log_trace:
+        print ("REk: {0}".format (REk))
     return REk
 
 def get_article_equiv_set (article):
@@ -181,5 +191,6 @@ def main ():
         input_dir      = args.input,
         output_dir     = args.output))
              
-main ()
+if __name__ == "__main__":
+    main()
 

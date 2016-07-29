@@ -251,6 +251,11 @@ execute_equivset () {
 	--output $DATA_HOME/equiv \
         --parts  $(( 32 * 6 * 2 )) # 32 cores x 5 tasks x 2
 }
+execute_test () {
+    spark \
+	--py-files python/eset.py \
+        $APP_HOME/python/test.py
+}
 
 execute_eval () {
     edev () {
