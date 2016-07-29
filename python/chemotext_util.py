@@ -9,6 +9,7 @@ import os
 import socket
 import sys
 import time
+import traceback
 from pyspark.sql import SQLContext
 from pyspark.sql import DataFrame
 from pyspark.sql.types import *
@@ -202,7 +203,9 @@ class ArticleDecoder(json.JSONDecoder):
                     code = i['code'],
                     fact = fact,
                     refs = refs,
-                    pmid   = obj['id']))
+                    pmid   = obj['id'],
+                    leftDocPos = i['leftDocPos'] if 'leftDocPos' in i else None,
+                    rightDocPos = i['rightDocPos'] if 'rightDocPos' in i else None))
 
         triples = []
         for triple in obj['ABC']:
@@ -231,7 +234,16 @@ class ArticleDecoder(json.JSONDecoder):
 def read_article (article_path):
     result = None
     with open (article_path) as stream:
-        result = json.loads (stream.read (), cls=ArticleDecoder)
+        try:
+            result = json.loads (stream.read (), cls=ArticleDecoder)
+        except ValueError:
+            logger.error ("Unable to load article {0} (valueerror)".format (article_path))
+            traceback.print_exc ()
+        except IOError:
+            logger.error ("Unable to load article {0} (ioerror)".format (article_path))
+            traceback.print_exc ()
+        except:
+            traceback.print_exc ()
     return result
 
 class SerializationUtil(object):
@@ -247,8 +259,18 @@ class SerializationUtil(object):
     @staticmethod
     def read_article (article_path):
         result = None
-        with open (article_path) as stream:
-            result = json.loads (stream.read (), cls=ArticleDecoder)
+        try:
+            with open (article_path) as stream:
+                result = json.loads (stream.read (), cls=ArticleDecoder)
+        except ValueError:
+            logger.error ("Unable to load article {0}".format (article_path))
+            traceback.print_exc ()
+        except IOError:
+            logger.error ("Unable to load article {0} (ioerror)".format (article_path))
+            traceback.print_exc ()
+        except:
+            logger.error ("Unable to load article {0} (other error)".format (article_path))
+            traceback.print_exc ()
         return result
     @staticmethod
     def parse_date (date):

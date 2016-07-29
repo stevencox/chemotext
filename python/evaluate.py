@@ -63,10 +63,9 @@ def get_facts (sc, conf):
 def get_article (article_path):
     logger = LoggingUtil.init_logging (__file__)
     logger.info ("Article: @-- {0}".format (article_path))
-    article = SUtil.read_article (article_path)
-    return article
+    return SUtil.read_article (article_path)
 def get_article_guesses (article):
-    guesses = article.AB + article.BC + article.AC
+    guesses = article.AB + article.BC + article.AC + article.BB
     skiplist = [ 'for', 'was', 'she', 'long' ]
     result = []
     for g in guesses:
@@ -77,7 +76,6 @@ def get_article_guesses (article):
 def distance (b):
     b.dist = 1000000 * b.paraDist + 100000 * b.sentDist + b.docDist
     return b
-
 def get_guesses (sc, conf, articles, slices=1, slice_n=1):
     slice_size = int (len (articles) / slices)
     offset = slice_size * slice_n
@@ -85,7 +83,7 @@ def get_guesses (sc, conf, articles, slices=1, slice_n=1):
                  format (conf.input_dir, len(articles), slice_size, offset)) 
     articles = articles [ offset : offset + slice_size ]
     articles = sc.parallelize (articles, conf.parts)
-    articles = articles.map (lambda p : get_article (p))
+    articles = articles.map (lambda p : get_article (p)).filter (lambda p : p is not None)
     pmids = articles.map (lambda a : a.id).collect ()
     guesses = articles.\
               flatMap (lambda article : get_article_guesses (article)). \
@@ -135,6 +133,7 @@ def annotate (guesses, facts, article_pmids):
     return union.map (lambda v: v[1])
 
 def get_articles (conf):
+    logger = LoggingUtil.init_logging (__file__)
     count = 0
     articles = []
     files = "evalfiles.json"
@@ -143,6 +142,9 @@ def get_articles (conf):
             articles = json.loads (stream.read ())
     else:
         for root, dirnames, filenames in os.walk (conf.input_dir):
+#        od = os.path.join (conf.input_dir, "M")
+#        logger.error ("conf output dir -----------> {0}".format (od))
+        for root, dirnames, filenames in os.walk (od):
             for filename in fnmatch.filter(filenames, '*.fxml.json'):
                 articles.append(os.path.join(root, filename))
                 count = count + 1
@@ -161,6 +163,8 @@ def is_training (b):
     return result
 
 def evaluate_articles (conf):
+    conf.input_dir = conf.input_dir.replace ("file://", "")
+    conf.output_dir = conf.output_dir.replace ("file://", "")
     logger.info ("Evaluating Chemotext2 output: {0}".format (conf.input_dir))
     sc = SparkUtil.get_spark_context (conf)
     logger.info ("Loading facts")
@@ -178,32 +182,15 @@ def evaluate_articles (conf):
             annotated = annotate (guesses, facts, article_pmids)
             logger.info ("Generating annotated output for " + output_dir)
             os.makedirs (output_dir)
-            '''
-            annotated.\
-                map(lambda b : json.dumps (b, cls=BinaryEncoder)). \
-                saveAsTextFile ("file://" + output_dir)
-            '''
+
             train = annotated.filter (lambda b : is_training (b)).map(lambda b : json.dumps (b, cls=BinaryEncoder))
             train_out_dir = os.path.join (output_dir, 'train')
             train.saveAsTextFile ("file://" + train_out_dir)
+            print ("-------------> {0}".format (train_out_dir))
             
             test  = annotated.filter (lambda b : not is_training (b)).map(lambda b : json.dumps (b, cls=BinaryEncoder))
             test_out_dir = os.path.join (output_dir, 'test')
             test.saveAsTextFile ("file://" + test_out_dir)
-
-def evaluate_articles0 (conf):
-    logger.info ("Evaluating Chemotext2 output: {0}".format (conf.input_dir))
-    sc = SparkUtil.get_spark_context (conf)
-    logger.info ("Loading facts")
-    facts = get_facts (sc, conf)
-    output_dir = os.path.join (conf.output_dir, "annotated", str(slice_n))
-    logger.info ("Loading guesses")
-    guesses, article_pmids = get_guesses (sc, conf, conf.slices, slice_n)
-    annotated = annotate (guesses, facts, article_pmids)
-    logger.info ("Generating annotated output for " + output_dir)
-    annotated.\
-        map(lambda b : json.dumps (b, cls=BinaryEncoder)). \
-        saveAsTextFile ("file://" + output_dir)
 
 def train_log_reg (sc, annotated):
     def label (b):
@@ -239,18 +226,17 @@ def main ():
     parser.add_argument("--ctdBC",  help="Path to CTD BC data")
     parser.add_argument("--ctdAC",  help="Path to CTD AC data")
     args = parser.parse_args()
-    conf = EvaluateConf (host           = args.host,
-                         venv           = args.venv,
-                         framework_name = args.name,
-                         input_dir      = args.input,
-                         output_dir     = args.output,
-                         slices         = int(args.slices),
-                         parts          = int(args.parts),
-                         ctdAB          = args.ctdAB,
-                         ctdBC          = args.ctdBC,
-                         ctdAC          = args.ctdAC)
-    #evaluate (conf)
-    evaluate_articles (conf)
+    evaluate_articles (
+        EvaluateConf (host           = args.host,
+                      venv           = args.venv,
+                      framework_name = args.name,
+                      input_dir      = args.input,
+                      output_dir     = args.output,
+                      slices         = int(args.slices),
+                      parts          = int(args.parts),
+                      ctdAB          = args.ctdAB,
+                      ctdBC          = args.ctdBC,
+                      ctdAC          = args.ctdAC))
 
 main ()
 

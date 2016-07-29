@@ -240,9 +240,7 @@ execute_pmidmap () {
     execute_ct1 --pmid --name "Chemotext2:CT1(PMID->Date)"
 }
 execute_equivset () {
-#    INPUTPATH=/projects/stars/var/chemotext/output.mesh.full.2016-07-09
-#    EQUIV_OUTPUT=/projects/stars/var/chemotext/equiv
-    EQUIV_OUTPUT=$DATA_HOME/equiv
+    INPUTPATH=/projects/stars/var/chemotext/output.mesh.full.2016-07-09
     spark \
 	--py-files python/chemotext_util.py \
 	$APP_HOME/python/eset.py \
@@ -250,8 +248,8 @@ execute_equivset () {
 	--name   "Chemotext2:ESet)" \
 	--venv   $VENV \
         --input  $INPUTPATH \
-	--output $EQUIV_OUTPUT \
-        --parts  1 #$(( 32 * 6 * 3 )) # 32 cores x 5 tasks x 3 (spark constant)
+	--output $DATA_HOME/equiv \
+        --parts  $(( 32 * 6 * 2 )) # 32 cores x 5 tasks x 2
 }
 
 execute_eval () {
@@ -262,9 +260,9 @@ execute_eval () {
         EVAL_PARTS=1
     }
     eprod () {
-        INPUTPATH=/projects/stars/var/chemotext/output.mesh.full.2016-07-09
-        INPUTPATH=/projects/stars/var/chemotext/equiv
-        EVALOUTPUT=/projects/stars/var/chemotext/eval
+#        INPUTPATH=/projects/stars/var/chemotext/output.mesh.full.2016-07-09
+        INPUTPATH=$DATA_HOME/equiv
+        EVALOUTPUT=$DATA_HOME/eval
         EVAL_SLICES=10
         EVAL_PARTS=$(( 32 * 6 * 3 )) # 32 cores x 5 tasks x 3 (spark constant)
 
