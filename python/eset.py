@@ -24,6 +24,9 @@ from chemotext_util import LoggingUtil
 from chemotext_util import SerializationUtil as SUtil
 from chemotext_util import SparkUtil
 
+from equiv_set import EqBinary
+from equiv_set import EquivalentSet
+
 logger = LoggingUtil.init_logging (__file__)
 
 def get_article (article_path):
@@ -35,7 +38,7 @@ def get_articles (sc, conf):
     #articles = glob.glob (os.path.join (conf.input_dir, "Mol_Cancer_2008_May_12_7_37*fxml.json"))
     logger.info ("-- articles:{0}".format (len (articles)))
     return sc.parallelize (articles, conf.spark_conf.parts).map (lambda p : get_article (p))
-
+'''
 class EqBinary(object):
     def __init__(self, binary, L, R):
         self.binary = binary
@@ -96,7 +99,12 @@ def make_equiv_set (L, R, threshold=200):
                     pairs[key].append ( EqBinary (binary, left, right) )
                 else:
                     pairs[key] = [ EqBinary (binary, left, right) ]
-                logger.info ("--{0}-binary: {1}".format (key, binary))
+
+    if log_trace:
+        print ("")
+        for k,v in pairs.iteritems ():
+            for val in v: 
+                print ("  --: [{0}] -> [{1}]".format (k, val))
 
     # GroupBy (x,y)
     REk = []
@@ -134,7 +142,7 @@ def get_article_equiv_set (article):
     article.BC = make_equiv_set (article.B, article.C)
     article.BB = make_equiv_set (article.B, article.B)
     return article
-        
+'''        
 def write_article (article, path):
     subdir = os.path.join (path, article.fileName[0], article.fileName[1])
     if not os.path.exists (subdir):
@@ -156,7 +164,8 @@ def process_article (article, output_dir):
         logger.info ("Skipping {0}".format (output_path))
     else:
         logger.info ("Writing article: {0}".format (output_path))
-        result.append (write_article (get_article_equiv_set (article), output_dir).id)
+#        result.append (write_article (get_article_equiv_set (article), output_dir).id)
+        result.append (write_article (EquivalentSet.get_article_equiv_set (article), output_dir).id)
     return result
 
 def trace_set (trace_level, label, rdd):
@@ -166,8 +175,6 @@ def trace_set (trace_level, label, rdd):
 
 def execute (conf):
     sc = SparkUtil.get_spark_context (conf.spark_conf)
-    #if os.path.exists (conf.output_dir):
-    #    shutil.rmtree (conf.output_dir)
     if not os.path.exists (conf.output_dir):
         os.mkdir (conf.output_dir)
     logger.info ("Generating equivalent sets from {0} to {1}".format (conf.input_dir, conf.output_dir))

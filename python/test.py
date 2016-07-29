@@ -2,7 +2,9 @@ import unittest
 
 from chemotext_util import WordPosition
 from chemotext_util import Binary
-import eset_mod as eset
+#import eset as eset_mod
+from equiv_set import EquivalentSet
+import equiv_set as eset_mod
 
 eset_mod.log_trace = True
 
@@ -30,11 +32,13 @@ class TestEquivalentSets(unittest.TestCase):
         right = [
             WordPosition (word = "RightWord0", docPos = 150, paraPos = 0, sentPos = 0)
         ]
-        equivalent_sets = eset_mod.make_equiv_set (left, right)
+        
+        #eset = eset_mod.make_equiv_set (left, right)
+        eset = EquivalentSet.make_equiv_set (left, right)
 
-        self.assertEqual (len (equivalent_sets), 1, "incorrect result set size")
+        self.assertEqual (len (eset), 1, "incorrect result set size")
 
-        item = equivalent_sets [0]
+        item = eset [0]
         self.assertEqual (item.L, left[0].word, "wrong left word")
         self.assertEqual (item.R, right[0].word, "wrong right word")
         self.assertEqual (item.leftDocPos, left[0].docPos, "wrong left doc pos")
@@ -52,7 +56,8 @@ class TestEquivalentSets(unittest.TestCase):
             WordPosition (word = "RightWord0", docPos = 115, paraPos = 0, sentPos = 0),
             WordPosition (word = "RightWord0", docPos = 160, paraPos = 0, sentPos = 0)
         ]
-        eset = eset_mod.make_equiv_set (left, right)
+        eset = EquivalentSet.make_equiv_set (left, right)
+        #eset = eset_mod.make_equiv_set (left, right)
         for e in eset:
             print "   --> {0}".format (e)
 
