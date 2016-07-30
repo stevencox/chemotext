@@ -132,6 +132,7 @@ class EquivalentSet(object):
     def get_article_equiv_set (article):
         article.AB = EquivalentSet.make_equiv_set (article.A, article.B)
         article.BC = EquivalentSet.make_equiv_set (article.B, article.C)
+        article.AC = EquivalentSet.make_equiv_set (article.A, article.C)
         article.BB = EquivalentSet.make_equiv_set (article.B, article.B)
         return article
         

@@ -230,7 +230,7 @@ class ArticleDecoder(json.JSONDecoder):
             BB         = binaries ['BB'] if 'BB' in binaries else [],
             ABC        = triples
         )
-
+'''
 def read_article (article_path):
     result = None
     with open (article_path) as stream:
@@ -245,6 +245,7 @@ def read_article (article_path):
         except:
             traceback.print_exc ()
     return result
+'''
 
 class SerializationUtil(object):
     @staticmethod
@@ -257,7 +258,9 @@ class SerializationUtil(object):
     def get_pmid_map (pmids):
         return SerializationUtil.read_json_file (pmids)
     @staticmethod
-    def read_article (article_path):
+    def get_article (article_path):
+#        traceback.print_stack ()
+        logger.info ("Article: @-- {0}".format (article_path))
         result = None
         try:
             with open (article_path) as stream:
@@ -272,6 +275,12 @@ class SerializationUtil(object):
             logger.error ("Unable to load article {0} (other error)".format (article_path))
             traceback.print_exc ()
         return result
+
+    @staticmethod
+    def get_article_paths (input_dir):
+#       return glob.glob (os.path.join (input_dir, "Mol_Cancer_2008_May_12_7_37*fxml.json"))
+        return glob.glob (os.path.join (input_dir, "*fxml.json"))
+
     @staticmethod
     def parse_date (date):
         result = None
@@ -295,12 +304,13 @@ class SerializationUtil(object):
         return result
 
 class Conf(object):
-    def __init__(self, host, venv, framework_name, input_dir, output_dir=None):
+    def __init__(self, host, venv, framework_name, input_dir, output_dir=None, parts=0):
         self.host = host
         self.venv = venv
         self.framework_name = framework_name
         self.input_dir = input_dir
         self.output_dir = output_dir
+        self.spark_conf = SparkConf (host, venv, framework_name, parts)
 
 class SparkConf(Conf):
     def __init__(self, host, venv, framework_name, parts=0):
@@ -316,7 +326,7 @@ class EquivConf(object):
 
 class EvaluateConf(Conf):
     def __init__(self, host, venv, framework_name, input_dir, output_dir, slices, parts, ctdAB, ctdBC, ctdAC):
-        super(EvaluateConf, self).__init__(host, venv, framework_name, input_dir)
+        super(EvaluateConf, self).__init__(host, venv, framework_name, input_dir, output_dir, parts)
         self.output_dir = output_dir
         self.slices = slices
         self.parts = parts
@@ -607,7 +617,7 @@ class DataLake(object):
         self.logger.info ("Load PubMed Central preprocessed to JSON as an RDD of article objects")
         articles = glob.glob (os.path.join (self.conf.input_dir, "*fxml.json"))
         return self.sc.parallelize (articles).         \
-            map (lambda a : SerializationUtil.read_article (a)). \
+            map (lambda a : SerializationUtil.get_article (a)). \
             cache ()
 
     def load_intact (self):

@@ -188,11 +188,8 @@ main () {
 }
 
 spark () {
-    # --executor-cores 64 
     SPARK_CSV=com.databricks:spark-csv_2.10:1.4.0
     SPARK_XML=com.databricks:spark-xml_2.10:0.3.3
-    #--conf spark.cleaner.ttl=1800 \
-    #--executor-cores 50 \
     $SPARK_HOME/bin/spark-submit \
 	$ARG_MESOS_MASTER \
 	--total-executor-cores $ARG_TOTAL_EXECUTOR_CORES \
@@ -204,7 +201,6 @@ spark () {
         --packages $SPARK_CSV,$SPARK_XML \
         $*
 }
-
 execute_ct2 () {
     spark \
 	--class "org.chemotext.ChemotextApp" \
@@ -225,7 +221,6 @@ execute_ct2 () {
 	--lexerCache $LEXER_CACHEFILE \
 	--lexerDict $LEXER_DICTIONARY 
 }
-
 execute_ct1 () {
     spark \
 	--py-files python/chemotext_util.py \
@@ -256,12 +251,12 @@ execute_test () {
 	--py-files python/eset.py \
         $APP_HOME/python/test.py
 }
-
 execute_eval () {
     edev () {
         INPUTPATH=/Users/scox/dev/starshome/app/chemotext/data/output.mesh.full
+    INPUTPATH=$OUTPUTPATH #/projects/stars/var/chemotext/output.mesh.full.2016-07-09
         EVALOUTPUT=/Users/scox/dev/starshome/var/chemotext/eval
-        EVAL_SLICES=1
+        EVAL_SLICES=2
         EVAL_PARTS=1
     }
     eprod () {
@@ -278,7 +273,7 @@ execute_eval () {
     e$env
     mkdir -p $EVALOUTPUT
     spark \
-        --py-files python/chemotext_util.py \
+	--py-files python/equiv_set.py,python/chemotext_util.py \
         $APP_HOME/python/evaluate.py \
         --host  $MESOS_MASTER \
         --name  "Chemotext2:Evaluate(Article)" \
@@ -291,7 +286,6 @@ execute_eval () {
         --ctdBC $CTDBCPATH \
         --ctdAC $CTDACPATH
 }
-
 execute_w2v () {
     spark \
         --py-files python/chemotext_util.py \

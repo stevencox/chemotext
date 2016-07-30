@@ -22,12 +22,11 @@ from chemotext_util import EquivConf
 from chemotext_util import LoggingUtil
 from chemotext_util import SerializationUtil as SUtil
 from chemotext_util import SparkUtil
-
-from equiv_set import EqBinary
 from equiv_set import EquivalentSet
 
 logger = LoggingUtil.init_logging (__file__)
 
+'''
 def get_article (article_path):
     logger = LoggingUtil.init_logging (__file__)
     logger.info ("Article: @-- {0}".format (article_path))
@@ -37,6 +36,7 @@ def get_articles (sc, conf):
     #articles = glob.glob (os.path.join (conf.input_dir, "Mol_Cancer_2008_May_12_7_37*fxml.json"))
     logger.info ("-- articles:{0}".format (len (articles)))
     return sc.parallelize (articles, conf.spark_conf.parts).map (lambda p : get_article (p))
+'''
 
 def write_article (article, path):
     subdir = os.path.join (path, article.fileName[0], article.fileName[1])
