@@ -77,7 +77,7 @@ class Binary(object):
             self.leftDocPos, self.rightDocPos, self.date)
 
 class Fact (Binary):
-    def __init__(self, id, L, R, docDist=0, paraDist=0, sentDist=0, code=0, fact=True, refs=[], pmid=-1,
+    def __init__(self, id=0, L="", R="", docDist=0, paraDist=0, sentDist=0, code=0, fact=True, refs=[], pmid=-1,
                  leftDocPos=None, rightDocPos=None, dist=None, date=None):
         super(Fact, self).__init__(0, L, R, 0, 0, 0, 0, True, [], pmid)
 

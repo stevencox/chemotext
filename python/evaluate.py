@@ -72,9 +72,12 @@ class Guesses(object):
         for g in guesses:
             if not g.L in skiplist and not g.R in skiplist:
                 g.pmid = article.id
-                date = SUtil.parse_date (article.date)
-                if date:
-                    g.date = calendar.timegm (date.timetuple())
+                try:
+                    date = SUtil.parse_date (article.date)
+                    if date:
+                        g.date = calendar.timegm (date.timetuple())
+                except:
+                    print ("No date parsed in {0}".format (article.fileName))
                 result.append ( ( make_key (g.L, g.R, g.pmid), Guesses.distance (g) ) )
         return result
     @staticmethod

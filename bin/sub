@@ -260,15 +260,12 @@ execute_eval () {
         EVAL_PARTS=1
     }
     eprod () {
-#        INPUTPATH=/projects/stars/var/chemotext/output.mesh.full.2016-07-09
-        INPUTPATH=$DATA_HOME/equiv
+        INPUTPATH=/projects/stars/var/chemotext/output.mesh.full.2016-07-09
         EVALOUTPUT=$DATA_HOME/eval
+#	INUTPATH=$DATA_HOME/output.mesh.full.2016-07-09
+
         EVAL_SLICES=10
         EVAL_PARTS=$(( 32 * 6 * 3 )) # 32 cores x 5 tasks x 3 (spark constant)
-
-#	ARG_TOTAL_EXECUTOR_CORES=30
-#	ARG_EXECUTOR_MEMORY=100G
-#	EVAL_PARTS=100
     }
     e$env
     mkdir -p $EVALOUTPUT
