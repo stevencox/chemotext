@@ -18,7 +18,7 @@ from chemotext_util import Binary
 from chemotext_util import BinaryEncoder
 from chemotext_util import BinaryDecoder
 from chemotext_util import SparkConf
-from chemotext_util import EquivConf
+#from chemotext_util import EquivConf
 from chemotext_util import LoggingUtil
 from chemotext_util import SerializationUtil as SUtil
 from chemotext_util import SparkUtil
@@ -70,7 +70,7 @@ class EquivalentSet(object):
             if left.word in skiplist:
                 continue
             for right in R:
-                if right.word in skiplist:
+                if right.word in skiplist or right.word is left.word:
                     continue
                 docDist = abs (left.docPos - right.docPos)
                 if docDist < threshold:
@@ -130,9 +130,15 @@ class EquivalentSet(object):
 
     @staticmethod
     def get_article_equiv_set (article):
-        article.AB = EquivalentSet.make_equiv_set (article.A, article.B)
-        article.BC = EquivalentSet.make_equiv_set (article.B, article.C)
-        article.AC = EquivalentSet.make_equiv_set (article.A, article.C)
-        article.BB = EquivalentSet.make_equiv_set (article.B, article.B)
+        if article:
+            article.AB = EquivalentSet.make_equiv_set (article.A, article.B)
+            article.BC = EquivalentSet.make_equiv_set (article.B, article.C)
+            article.AC = EquivalentSet.make_equiv_set (article.A, article.C)
+            article.BB = EquivalentSet.make_equiv_set (article.B, article.B)
         return article
+
+    @staticmethod
+    def get_article (article_path):
+        article = EquivalentSet.get_article_equiv_set (SUtil.get_article (article_path))
+        return [] if not article else [ article ]
         

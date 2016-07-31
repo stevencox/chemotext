@@ -1,10 +1,19 @@
+import json
 import unittest
-
+import os
+import fnmatch
+import traceback
+import equiv_set as eset_mod
+from equiv_set import EquivalentSet
+from evaluate import Evaluate
 from chemotext_util import WordPosition
 from chemotext_util import Binary
-#import eset as eset_mod
-from equiv_set import EquivalentSet
-import equiv_set as eset_mod
+from chemotext_util import Fact
+from chemotext_util import BinaryEncoder
+from chemotext_util import BinaryDecoder
+from chemotext_util import EvaluateConf
+from chemotext_util import SparkConf
+from chemotext_util import CTDConf
 
 eset_mod.log_trace = True
 
@@ -73,6 +82,67 @@ class TestEquivalentSets(unittest.TestCase):
         for idx, b in enumerate (expect):
             self.validate_eset (eset, idx, b.L, b.R, docDist=b.docDist,
                                 leftDocPos=b.leftDocPos, rightDocPos=b.rightDocPos) 
+
+
+class TestEvaluateion(unittest.TestCase):
+
+    def test_evaluation (self):
+        stars_home = os.path.abspath ("../..")
+        data_home = os.path.abspath ("./data")
+        ctd_home = os.path.join (data_home, "ctd")
+        output_dir = os.path.abspath ("./data/eval")
+
+        Evaluate.evaluate (
+            EvaluateConf (
+                spark_conf = SparkConf (host           = "local[2]",
+                                        venv           = os.path.join (stars_home, "venv"),
+                                        framework_name = "test-evaluate",
+                                        parts          = 4),
+                input_dir  = os.path.abspath ("./data/output.mesh.full"),
+                output_dir = output_dir,
+                slices     = 3,
+                ctd_conf = CTDConf (
+                    ctdAB = os.path.join (ctd_home, "CTD_chem_gene_ixns.csv"),
+                    ctdBC = os.path.join (ctd_home, "CTD_genes_diseases.csv"),
+                    ctdAC = os.path.join (ctd_home, "CTD_chemicals_diseases.csv"))))
+
+        binaries = []
+        for root, dirnames, filenames in os.walk (output_dir):
+            for filename in fnmatch.filter(filenames, '*part-*'):
+                if not "crc" in filename:
+                    file_name = os.path.join(root, filename)
+                    with open (file_name, "r") as stream:
+                        for line in stream:
+                            line = line.strip ()
+                            if len(line) > 0:
+                                try:
+                                    obj = BinaryDecoder().decode (line)
+                                    if not isinstance (obj, Fact):
+                                        binaries.append (obj)
+                                    #print ("    -> {0}".format (json.dumps (obj, cls=BinaryEncoder)))
+                                except:
+                                    print line
+                                    traceback.print_exc ()
+        patterns = [
+            [ "10,10-bis(4-pyridinylmethyl)-9(10h)-anthracenone", "kcnq1", "18568022", 1281744000, True ]
+        ]
+        for pattern in patterns:
+            self.assertContains (binaries, pattern)
+            
+    def assertContains (self, binaries, pattern):
+        match = False
+        L = pattern [0]
+        R = pattern [1]
+        pmid = pattern [2]
+        date = pattern [3]
+        fact = pattern [4]
+        print "   -- assert: L:{0}, R:{1}, pmid:{2}, date:{3}, fact:{4}".format (L, R, pmid, date, fact)
+        for binary in binaries:
+            print binary
+            if L == binary.L and R == binary.R and pmid == binary.pmid and date == binary.date and fact == binary.fact:
+                match = True
+                break
+        self.assertTrue (match)
 
 if __name__ == '__main__':
     unittest.main()

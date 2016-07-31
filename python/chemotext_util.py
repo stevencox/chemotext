@@ -55,7 +55,7 @@ class WordPosition(object):
 
 class Binary(object):
     def __init__(self, id, L, R, docDist, paraDist, sentDist, code, fact, refs, pmid=-1,
-                 leftDocPos = None, rightDocPos = None):
+                 leftDocPos=None, rightDocPos=None, dist=None, date=None):
         self.id = id
         self.L = L
         self.R = R
@@ -68,19 +68,21 @@ class Binary(object):
         self.pmid = pmid
         self.leftDocPos = leftDocPos
         self.rightDocPos = rightDocPos
+        self.date = date
     def __str__ (self):
         return self.__repr__()
     def __repr__ (self):
-        return """ id:{0}, L:{1}, R:{2}, docDist:{3}, paraDist:{4}, sentDist:{5}, code:{6}, fact:{7}, refs:{8}, pmid:{9}, ldpos:{10}, rdpos:{11}""".format (
+        return """ id:{0}, L:{1}, R:{2}, docDist:{3}, paraDist:{4}, sentDist:{5}, code:{6}, fact:{7}, refs:{8}, pmid:{9}, ldpos:{10}, rdpos:{11}, date:{12}""".format (
             self.id, self.L, self.R, self.docDist, self.paraDist, self.sentDist, self.code, self.fact, self.refs, self.pmid,
-            self.leftDocPos, self.rightDocPos)
+            self.leftDocPos, self.rightDocPos, self.date)
 
 class Fact (Binary):
-    def __init__(self, L, R, pmid):
+    def __init__(self, id, L, R, docDist=0, paraDist=0, sentDist=0, code=0, fact=True, refs=[], pmid=-1,
+                 leftDocPos=None, rightDocPos=None, dist=None, date=None):
         super(Fact, self).__init__(0, L, R, 0, 0, 0, 0, True, [], pmid)
-#        self.L = L
-#        self.R = R
-#        self.pmid = pmid
+
+#    def __init__(self, L, R, pmid):
+
 
 class BinaryEncoder(JSONEncoder):
     def default(self, obj):
@@ -92,7 +94,7 @@ class BinaryEncoder(JSONEncoder):
         return d
 
 class BinaryDecoder(JSONDecoder):
-    def __init__(self):
+    def __init__(self, encoding=None):
         json.JSONDecoder.__init__(self, object_hook=self.dict_to_object)
     def dict_to_object(self, d):
         if '__class__' in d:
@@ -302,8 +304,7 @@ class SerializationUtil(object):
                 result = datetime.datetime.strptime (text, "%d-%b-%Y")
             logger.debug ("Parsed date: {0}, ts: {1}".format (result, calendar.timegm(result.timetuple())))
         return result
-
-class Conf(object):
+class Conf0(object):
     def __init__(self, host, venv, framework_name, input_dir, output_dir=None, parts=0):
         self.host = host
         self.venv = venv
@@ -311,20 +312,25 @@ class Conf(object):
         self.input_dir = input_dir
         self.output_dir = output_dir
         self.spark_conf = SparkConf (host, venv, framework_name, parts)
-
-class SparkConf(Conf):
+class Conf(object):
+    def __init__(self, spark_conf, input_dir=None, output_dir=None):
+        self.spark_conf = spark_conf
+        self.input_dir = input_dir
+        self.output_dir = output_dir
+class SparkConf(object):
     def __init__(self, host, venv, framework_name, parts=0):
         self.host = host
         self.venv = venv
         self.framework_name = framework_name
         self.parts = parts
+'''
 class EquivConf(object):
     def __init__(self, spark_conf, input_dir, output_dir):
         self.spark_conf = spark_conf
         self.input_dir = input_dir
         self.output_dir = output_dir
-
-class EvaluateConf(Conf):
+'''
+class EvaluateConf0(Conf):
     def __init__(self, host, venv, framework_name, input_dir, output_dir, slices, parts, ctdAB, ctdBC, ctdAC):
         super(EvaluateConf, self).__init__(host, venv, framework_name, input_dir, output_dir, parts)
         self.output_dir = output_dir
@@ -333,12 +339,26 @@ class EvaluateConf(Conf):
         self.ctdAB = ctdAB
         self.ctdBC = ctdBC
         self.ctdAC = ctdAC
-
-class MedlineConf(object):
+class CTDConf(object):
+    def __init__(self, ctdAB, ctdBC, ctdAC):
+        self.ctdAB = ctdAB
+        self.ctdBC = ctdBC
+        self.ctdAC = ctdAC
+class EvaluateConf(Conf):
+    def __init__(self, spark_conf, input_dir, output_dir, slices, ctd_conf):
+        super(EvaluateConf, self).__init__(spark_conf, input_dir, output_dir)
+        self.ctd_conf = ctd_conf
+        self.slices = slices
+class MedlineConf0(object):
     def __init__(self, host, venv, framework_name, data_root, gen_pmid_map):
         self.host = host
         self.venv = venv
         self.framework_name = framework_name
+        self.data_root = data_root
+        self.gen_pmid_map = gen_pmid_map
+class MedlineConf(object):
+    def __init__(self, spark_conf, data_root, gen_pmid_map):
+        super(MedlineConf, self).__init__(spark_conf)
         self.data_root = data_root
         self.gen_pmid_map = gen_pmid_map
 
@@ -480,9 +500,8 @@ class Medline(object):
 
 class Word2VecConf(Conf):
     def __init__(self, host, venv, framework_name, input_dir, mesh):
-        super(Word2VecConf, self).__init__(host, venv, framework_name, input_dir)
+        super(Word2VecConf, self).__init__(SparkConf(host, venv, framework_name), input_dir)
         self.mesh = mesh
-
 class DataLakeConf(object):
     def __init__(self, input_dir, intact, medline, proqinase_syn, mesh_syn, kin2prot):
         self.input_dir = input_dir
@@ -491,10 +510,9 @@ class DataLakeConf(object):
         self.proqinase_syn = proqinase_syn
         self.mesh_syn = mesh_syn
         self.kin2prot = kin2prot
-
 class KinaseConf(Conf):
     def __init__(self, spark_conf, data_lake_conf, w2v_model):
-        self.spark_conf = spark_conf
+        super(KinaseConf, self).__init__(spark_conf, input_dir)
         self.data_lake_conf = data_lake_conf
         self.w2v_model = w2v_model
 

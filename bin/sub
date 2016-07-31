@@ -248,7 +248,7 @@ execute_equivset () {
 }
 execute_test () {
     spark \
-	--py-files python/eset.py \
+	--py-files python/equiv_set.py,python/chemotext_util.py,python/evaluate.py \
         $APP_HOME/python/test.py
 }
 execute_eval () {
