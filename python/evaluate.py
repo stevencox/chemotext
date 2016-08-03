@@ -207,6 +207,17 @@ class Evaluate(object):
                 test.saveAsTextFile ("file://" + test_out_dir)
                 print ("   --> test: {0}".format (test_out_dir))
 
+
+    @staticmethod
+    def process_before (binaries):
+        result = sorted (binaries, key=lambda b: b.date)
+        fact_pos = -1
+        for idx, b in enumerate (binaries):
+            if b.fact:
+                fact_pos = idx
+                break
+        return result [0 : fact_pos] if fact_pos > -1 else []
+
     @staticmethod
     def plot (conf):
         sc = SparkUtil.get_spark_context (conf.spark_conf)
@@ -214,32 +225,64 @@ class Evaluate(object):
         conf.output_dir = conf.output_dir.replace ("file:", "")
         sns.set(style="white")
         sample = conf.sample
-        years = np.arange (1985, 2016)
+        min_year = 1990
+        max_year = datetime.datetime.now().year
+        years = np.arange (min_year, max_year)
         df = None
+        before = sc.parallelize ([])
         for slice_n in range (0, conf.slices):
             print "reading slice {0}".format (slice_n)
             files = ",".join ([
                 os.path.join (conf.output_dir, "annotated", str(slice_n), "train"),
                 os.path.join (conf.output_dir, "annotated", str(slice_n), "test") ])
-            countByYear = sc.textFile (files). \
-                map (lambda t : BinaryDecoder().decode (t)). \
+            annotated = sc.textFile (files). \
+                map (lambda t : BinaryDecoder().decode (t))
+
+
+
+            premonitions = annotated. \
+                           map         (lambda b : ( simplekey(b), [b] )). \
+                           reduceByKey (lambda x,y : x + y). \
+                           mapValues   (lambda x : Evaluate.process_before (x)). \
+                           takeOrdered (10, key=lambda x: -len(x[1]))
+            p_by_year = {}
+            for k,v in premonitions:
+                for b in v:
+                    year = datetime.datetime.fromtimestamp (b.date).year if b.date else 0
+                    if isinstance (year, int) and year > min_year and year <= max_year:
+                        p_by_year [year] = by_year[year] + 1 if year in by_year else 0
+            before = before.union (sc.parallelize([ x for x in enumerate(p_by_year) ])).\
+                     reduceByKey (lambda x,y: x + y)
+
+            countByYear = annotated. \
                 map (lambda b: ( datetime.datetime.fromtimestamp (b.date).year if b.date else 0, 1) ). \
-                filter (lambda y : isinstance (y[0], int) and y[0] > 1960 and y[0] <= 2016 ). \
+                filter (lambda y : isinstance (y[0], int) and y[0] > min_year and y[0] <= max_year ). \
                 reduceByKey (lambda x, y: x + y). \
                 sample (withReplacement=False, fraction=sample, seed=12345)
             df = df.union (countByYear) if df else countByYear
             df = df.reduceByKey (lambda x, y: x + y)
-        if df is not None:
+
+        if before is not None and before.count () > 0:
+            before = before.toDF().toPandas ()
+            before = before.rename (columns = { '_1' : 'year' } )
+            before = before.rename (columns = { '_2' : 'before' } )
+            g = sns.factorplot (data=before, x="year", y="before",
+                                kind="bar", hue="year",
+                                size=10, aspect=1.5, order=years)
+            g.set_xticklabels (step=2)
+            g.savefig ("before.png")
+        if df is not None and df.count () > 0:
             df = df.toDF().toPandas ()
             df = df.rename (columns = { '_1' : 'year' } )
             df = df.rename (columns = { '_2' : 'relationships' } )
-            #df.plot(stacked=True, width=1, kind="barh", lw=1)
             g = sns.factorplot (data=df, x="year", y="relationships",
                                 kind="bar", hue="year",
                                 size=10, aspect=1.5, order=years)
             g.set_xticklabels (step=2)
             g.savefig ("figure.png")
-            #sns.plt.show()
+
+def simplekey (b):
+    return "{0}@{1}".format (b.L, b.R)
 
 def main ():
     parser = argparse.ArgumentParser()
