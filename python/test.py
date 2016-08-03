@@ -111,6 +111,7 @@ class TestEvaluateion(unittest.TestCase):
             for filename in fnmatch.filter(filenames, '*part-*'):
                 if not "crc" in filename:
                     file_name = os.path.join(root, filename)
+                    print ("  --Loading: {0}".format (file_name))
                     with open (file_name, "r") as stream:
                         for line in stream:
                             line = line.strip ()
@@ -119,7 +120,6 @@ class TestEvaluateion(unittest.TestCase):
                                     obj = BinaryDecoder().decode (line)
                                     if not isinstance (obj, Fact):
                                         binaries.append (obj)
-                                    #print ("    -> {0}".format (json.dumps (obj, cls=BinaryEncoder)))
                                 except:
                                     print line
                                     traceback.print_exc ()

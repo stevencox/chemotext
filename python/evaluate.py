@@ -26,7 +26,11 @@ from chemotext_util import LoggingUtil
 from chemotext_util import SerializationUtil as SUtil
 from chemotext_util import SparkUtil
 from equiv_set import EquivalentSet
+from operator import add
 from pyspark.sql import SQLContext
+
+import numpy as np
+import seaborn as sns
 
 logger = LoggingUtil.init_logging (__file__)
 
@@ -188,6 +192,8 @@ class Evaluate(object):
                 logger.info ("Annotation[slice {0}]. {1} binaries in {2} seconds.".format (slice_n, count, elapsed))
                 logger.info ("Generating annotated output for " + output_dir)
                 os.makedirs (output_dir)
+
+                #Evaluate.plot (sc, annotated, conf.sample)
                 
                 train = annotated.filter (lambda b : Evaluate.is_training (b)).\
                         map(lambda b : json.dumps (b, cls=BinaryEncoder))
@@ -201,6 +207,40 @@ class Evaluate(object):
                 test.saveAsTextFile ("file://" + test_out_dir)
                 print ("   --> test: {0}".format (test_out_dir))
 
+    @staticmethod
+    def plot (conf):
+        sc = SparkUtil.get_spark_context (conf.spark_conf)
+        sqlContext = SQLContext(sc)
+        conf.output_dir = conf.output_dir.replace ("file:", "")
+        sns.set(style="white")
+        sample = conf.sample
+        years = np.arange (1985, 2016)
+        df = None
+        for slice_n in range (0, conf.slices):
+            print "reading slice {0}".format (slice_n)
+            files = ",".join ([
+                os.path.join (conf.output_dir, "annotated", str(slice_n), "train"),
+                os.path.join (conf.output_dir, "annotated", str(slice_n), "test") ])
+            countByYear = sc.textFile (files). \
+                map (lambda t : BinaryDecoder().decode (t)). \
+                map (lambda b: ( datetime.datetime.fromtimestamp (b.date).year if b.date else 0, 1) ). \
+                filter (lambda y : isinstance (y[0], int) and y[0] > 1960 and y[0] <= 2016 ). \
+                reduceByKey (lambda x, y: x + y). \
+                sample (withReplacement=False, fraction=sample, seed=12345)
+            df = df.union (countByYear) if df else countByYear
+            df = df.reduceByKey (lambda x, y: x + y)
+        if df is not None:
+            df = df.toDF().toPandas ()
+            df = df.rename (columns = { '_1' : 'year' } )
+            df = df.rename (columns = { '_2' : 'relationships' } )
+            #df.plot(stacked=True, width=1, kind="barh", lw=1)
+            g = sns.factorplot (data=df, x="year", y="relationships",
+                                kind="bar", hue="year",
+                                size=10, aspect=1.5, order=years)
+            g.set_xticklabels (step=2)
+            g.savefig ("figure.png")
+            #sns.plt.show()
+
 def main ():
     parser = argparse.ArgumentParser()
     parser.add_argument("--host",   help="Mesos master host")
@@ -210,23 +250,29 @@ def main ():
     parser.add_argument("--slices", help="Number of slices of files to iterate over.")
     parser.add_argument("--parts",  help="Number of partitions for the computation.")
     parser.add_argument("--venv",   help="Path to Python virtual environment to use")
+    parser.add_argument("--sample", help="Sample size for plot")
     parser.add_argument("--ctdAB",  help="Path to CTD AB data")
     parser.add_argument("--ctdBC",  help="Path to CTD BC data")
     parser.add_argument("--ctdAC",  help="Path to CTD AC data")
+    parser.add_argument("--plot",   help="Plot data", action='store_true')
     args = parser.parse_args()
-    Evaluate.evaluate (
-        EvaluateConf (
-            spark_conf = SparkConf (host           = args.host,
-                                    venv           = args.venv,
-                                    framework_name = args.name,
-                                    parts          = int(args.parts)),
-            input_dir      = args.input.replace ("file://", ""),
-            output_dir     = args.output.replace ("file://", ""),
-            slices         = int(args.slices),
-            ctd_conf = CTDConf (
-                ctdAB          = args.ctdAB,
-                ctdBC          = args.ctdBC,
-                ctdAC          = args.ctdAC)))
+    conf = EvaluateConf (
+        spark_conf = SparkConf (host           = args.host,
+                                venv           = args.venv,
+                                framework_name = args.name,
+                                parts          = int(args.parts)),
+        input_dir      = args.input.replace ("file://", ""),
+        output_dir     = args.output.replace ("file://", ""),
+        slices         = int(args.slices),
+        sample         = int(args.sample),
+        ctd_conf = CTDConf (
+            ctdAB          = args.ctdAB,
+            ctdBC          = args.ctdBC,
+            ctdAC          = args.ctdAC))
+    if args.plot:
+        Evaluate.plot (conf)
+    else:
+        Evaluate.evaluate (conf)
 
 if __name__ == "__main__":
     main()

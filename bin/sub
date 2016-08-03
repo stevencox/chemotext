@@ -254,10 +254,11 @@ execute_test () {
 execute_eval () {
     edev () {
         INPUTPATH=/Users/scox/dev/starshome/app/chemotext/data/output.mesh.full
-    INPUTPATH=$OUTPUTPATH #/projects/stars/var/chemotext/output.mesh.full.2016-07-09
+        INPUTPATH=$OUTPUTPATH #/projects/stars/var/chemotext/output.mesh.full.2016-07-09
         EVALOUTPUT=/Users/scox/dev/starshome/var/chemotext/eval
         EVAL_SLICES=2
         EVAL_PARTS=1
+        EVAL_SAMPLE=1
     }
     eprod () {
         INPUTPATH=/projects/stars/var/chemotext/output.mesh.full.2016-07-09
@@ -266,22 +267,29 @@ execute_eval () {
 
         EVAL_SLICES=10
         EVAL_PARTS=$(( 32 * 6 * 3 )) # 32 cores x 5 tasks x 3 (spark constant)
+        EVAL_SAMPLE=0.2
     }
     e$env
     mkdir -p $EVALOUTPUT
+#$VENV \
     spark \
 	--py-files python/equiv_set.py,python/chemotext_util.py \
         $APP_HOME/python/evaluate.py \
         --host  $MESOS_MASTER \
         --name  "Chemotext2:Evaluate(Article)" \
-        --venv  $VENV \
+        --venv  /Users/scox/dev/plot \
         --input $INPUTPATH \
 	--output $EVALOUTPUT \
         --slices $EVAL_SLICES \
         --parts $EVAL_PARTS \
+        --sample $EVAL_SAMPLE \
         --ctdAB $CTDABPATH \
         --ctdBC $CTDBCPATH \
-        --ctdAC $CTDACPATH
+        --ctdAC $CTDACPATH \
+        $*
+}
+execute_plot () {
+    execute_eval --plot
 }
 execute_w2v () {
     spark \

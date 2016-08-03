@@ -345,10 +345,11 @@ class CTDConf(object):
         self.ctdBC = ctdBC
         self.ctdAC = ctdAC
 class EvaluateConf(Conf):
-    def __init__(self, spark_conf, input_dir, output_dir, slices, ctd_conf):
+    def __init__(self, spark_conf, input_dir, output_dir, slices, sample, ctd_conf):
         super(EvaluateConf, self).__init__(spark_conf, input_dir, output_dir)
         self.ctd_conf = ctd_conf
         self.slices = slices
+        self.sample = sample
 class MedlineConf0(object):
     def __init__(self, host, venv, framework_name, data_root, gen_pmid_map):
         self.host = host
