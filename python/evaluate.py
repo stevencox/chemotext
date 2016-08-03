@@ -264,7 +264,7 @@ def main ():
         input_dir      = args.input.replace ("file://", ""),
         output_dir     = args.output.replace ("file://", ""),
         slices         = int(args.slices),
-        sample         = int(args.sample),
+        sample         = float(args.sample),
         ctd_conf = CTDConf (
             ctdAB          = args.ctdAB,
             ctdBC          = args.ctdBC,
