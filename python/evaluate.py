@@ -26,6 +26,7 @@ from chemotext_util import LoggingUtil
 from chemotext_util import SerializationUtil as SUtil
 from chemotext_util import SparkUtil
 from equiv_set import EquivalentSet
+from itertools import chain
 from operator import add
 from pyspark.sql import SQLContext
 
@@ -211,6 +212,11 @@ class Evaluate(object):
     @staticmethod
     def process_before (binaries):
         result = sorted (binaries, key=lambda b: b.date)
+        return result
+
+    @staticmethod
+    def delete_after (binaries):
+        result = sorted (binaries, key=lambda b: b.date)
         fact_pos = -1
         for idx, b in enumerate (binaries):
             if b.fact:
@@ -223,6 +229,7 @@ class Evaluate(object):
         sc = SparkUtil.get_spark_context (conf.spark_conf)
         sqlContext = SQLContext(sc)
         conf.output_dir = conf.output_dir.replace ("file:", "")
+        conf.output_dir = "file://{0}".format (conf.output_dir)
         sns.set(style="white")
         sample = conf.sample
         min_year = 1990
@@ -230,30 +237,44 @@ class Evaluate(object):
         years = np.arange (min_year, max_year)
         df = None
         before = sc.parallelize ([])
+        distances = sc.parallelize ([])
+        # TODO - REMOVE (DEBUG)
+        #conf.slices = 1
         for slice_n in range (0, conf.slices):
             print "reading slice {0}".format (slice_n)
             files = ",".join ([
-                os.path.join (conf.output_dir, "annotated", str(slice_n), "train"),
-                os.path.join (conf.output_dir, "annotated", str(slice_n), "test") ])
+                os.path.join (conf.output_dir, "annotated", str(slice_n), "train") ])
+#                os.path.join (conf.output_dir, "annotated", str(slice_n), "test") ])
             annotated = sc.textFile (files). \
                 map (lambda t : BinaryDecoder().decode (t))
 
+            # Sum distances grouped by fact attribute (T/F)
+            slice_distances = annotated. \
+                              filter (lambda x : not isinstance (x, Fact)). \
+                              map (lambda x : ( x.fact, ( x.docDist, x.paraDist, x.sentDist) )).\
+                              reduceByKey (lambda x,y: ( x[0] + y[0], x[1] + y[1], x[2] + y[2] ))
+            distances = distances.union (slice_distances).\
+                        reduceByKey (lambda x,y: ( x[0] + y[0], x[1] + y[1], x[2] + y[2] ))
+            print "Distances size:{0} elements:{1}".format (distances.count (), distances.collect ())
 
-
-            premonitions = annotated. \
+            # Find binaries detected before CTD reference article date
+            early = annotated. \
                            map         (lambda b : ( simplekey(b), [b] )). \
                            reduceByKey (lambda x,y : x + y). \
                            mapValues   (lambda x : Evaluate.process_before (x)). \
                            takeOrdered (10, key=lambda x: -len(x[1]))
             p_by_year = {}
-            for k,v in premonitions:
+            for k,v in early:
                 for b in v:
                     year = datetime.datetime.fromtimestamp (b.date).year if b.date else 0
                     if isinstance (year, int) and year > min_year and year <= max_year:
-                        p_by_year [year] = by_year[year] + 1 if year in by_year else 0
-            before = before.union (sc.parallelize([ x for x in enumerate(p_by_year) ])).\
+                        p_by_year [year] = p_by_year[year] + 1 if year in p_by_year else 0
+            before = before.union (sc.parallelize([ (year, p_by_year[year]) for year in p_by_year ])).\
                      reduceByKey (lambda x,y: x + y)
+            print "before size => {0}".format (before.count ())
+            print "before collect() => {0}".format (before.collect ())
 
+            # Count by year
             countByYear = annotated. \
                 map (lambda b: ( datetime.datetime.fromtimestamp (b.date).year if b.date else 0, 1) ). \
                 filter (lambda y : isinstance (y[0], int) and y[0] > min_year and y[0] <= max_year ). \
@@ -262,6 +283,25 @@ class Evaluate(object):
             df = df.union (countByYear) if df else countByYear
             df = df.reduceByKey (lambda x, y: x + y)
 
+        if distances.count () > 0:
+            print "Distances: {0}".format (distances.collect ())
+            distances = distances. \
+                        flatMap (lambda x: ( ( x[0], "doc",  x[1][0] ),
+                                             ( x[0], "para", x[1][1] * 10 ),
+                                             ( x[0], "sent", x[1][2] * 10 ))).\
+                        toDF().toPandas ().\
+                        rename (columns = { "_1" : "truth",
+                                            "_2" : "type",
+                                            "_3" : "count" })
+            g = sns.factorplot(x="truth", y="count", col="type",
+                               data=distances, saturation=.5,
+                               kind="bar", ci=None, aspect=.6).\
+                set_axis_labels("", "Count").\
+                set_xticklabels(["False", "True"]).\
+                set_titles("{col_name} {col_var}").\
+                despine(left=True).\
+                savefig ("distances.png")
+
         if before is not None and before.count () > 0:
             before = before.toDF().toPandas ()
             before = before.rename (columns = { '_1' : 'year' } )
@@ -269,8 +309,10 @@ class Evaluate(object):
             g = sns.factorplot (data=before, x="year", y="before",
                                 kind="bar", hue="year",
                                 size=10, aspect=1.5, order=years)
+            sns.set_style("ticks")
             g.set_xticklabels (step=2)
             g.savefig ("before.png")
+
         if df is not None and df.count () > 0:
             df = df.toDF().toPandas ()
             df = df.rename (columns = { '_1' : 'year' } )
@@ -281,6 +323,12 @@ class Evaluate(object):
             g.set_xticklabels (step=2)
             g.savefig ("figure.png")
 
+    @staticmethod
+    def flatten_dist(truth, dist):
+        yield (truth, "doc",  dist[0])
+        yield (truth, "sent", dist[1])
+        yield (truth, "para", dist[2])
+        
 def simplekey (b):
     return "{0}@{1}".format (b.L, b.R)
 

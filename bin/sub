@@ -201,6 +201,20 @@ spark () {
         --packages $SPARK_CSV,$SPARK_XML \
         $*
 }
+execute_pyspark () {
+    SPARK_CSV=com.databricks:spark-csv_2.10:1.4.0
+    SPARK_XML=com.databricks:spark-xml_2.10:0.3.3
+    $SPARK_HOME/bin/pyspark \
+	$ARG_MESOS_MASTER \
+	--total-executor-cores $ARG_TOTAL_EXECUTOR_CORES \
+	--conf spark.executor.memory=$ARG_EXECUTOR_MEMORY \
+	--conf spark.default.parallelism=$ARG_DEFAULT_PARALLELISM \
+	--conf spark.driver.memory=$ARG_DRIVER_MEMORY \
+	--conf spark.driver.maxResultSize=$ARG_MAX_RESULT_SIZE \
+	--conf "spark.driver.extraJavaOptions=${EXTRA_JAVA_OPTS}" \
+        --packages $SPARK_CSV,$SPARK_XML \
+        $*
+}
 execute_ct2 () {
     spark \
 	--class "org.chemotext.ChemotextApp" \
@@ -267,17 +281,18 @@ execute_eval () {
 
         EVAL_SLICES=10
         EVAL_PARTS=$(( 32 * 6 * 3 )) # 32 cores x 5 tasks x 3 (spark constant)
-        EVAL_SAMPLE=0.2
+        EVAL_SAMPLE=0.2 #1
     }
     e$env
     mkdir -p $EVALOUTPUT
 #$VENV \
+#/Users/scox/dev/plot \
     spark \
 	--py-files python/equiv_set.py,python/chemotext_util.py \
         $APP_HOME/python/evaluate.py \
         --host  $MESOS_MASTER \
         --name  "Chemotext2:Evaluate(Article)" \
-        --venv  /Users/scox/dev/plot \
+        --venv  $VENV \
         --input $INPUTPATH \
 	--output $EVALOUTPUT \
         --slices $EVAL_SLICES \
