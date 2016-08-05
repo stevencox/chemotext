@@ -244,9 +244,9 @@ class Evaluate(object):
             print "reading slice {0}".format (slice_n)
             files = ",".join ([
                 os.path.join (conf.output_dir, "annotated", str(slice_n), "train") ])
-#                os.path.join (conf.output_dir, "annotated", str(slice_n), "test") ])
-            annotated = sc.textFile (files). \
-                map (lambda t : BinaryDecoder().decode (t))
+            #os.path.join (conf.output_dir, "annotated", str(slice_n), "test") ])
+            annotated = sc.textFile (files, minPartitions=conf.spark_conf.parts). \
+                        map (lambda t : BinaryDecoder().decode (t))
 
             # Sum distances grouped by fact attribute (T/F)
             slice_distances = annotated. \
@@ -284,6 +284,13 @@ class Evaluate(object):
             df = df.reduceByKey (lambda x, y: x + y)
 
         if distances.count () > 0:
+
+            #https://stanford.edu/~mwaskom/software/seaborn/generated/seaborn.boxplot.html
+            # Box and Whiskers plot:
+            ax = sns.boxplot(x="truth", y="", hue="smoker",
+                             data=distances, palette="Set3")
+
+
             print "Distances: {0}".format (distances.collect ())
             distances = distances. \
                         flatMap (lambda x: ( ( x[0], "doc",  x[1][0] ),
