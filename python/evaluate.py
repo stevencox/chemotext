@@ -30,6 +30,9 @@ from itertools import chain
 from operator import add
 from pyspark.sql import SQLContext
 
+
+import matplotlib.pyplot as plt
+
 import numpy as np
 import seaborn as sns
 
@@ -287,11 +290,20 @@ class Evaluate(object):
 
             #https://stanford.edu/~mwaskom/software/seaborn/generated/seaborn.boxplot.html
             # Box and Whiskers plot:
-            ax = sns.boxplot(x="truth", y="", hue="smoker",
-                             data=distances, palette="Set3")
-
-
+            
             print "Distances: {0}".format (distances.collect ())
+            d = distances.\
+                map (lambda x : ( x[0], 0, x[1][0] ) ).\
+                toDF().toPandas (). \
+                rename (columns = { "_1" : "truth",
+                                    "_2" : "type",
+                                    "_3" : "count" })
+            print d
+            fig, ax = plt.subplots()
+            ax = sns.boxplot(x="truth", y="count", data=d, palette="Set3", ax=ax)
+                
+            plt.savefig ("whisker.png")
+
             distances = distances. \
                         flatMap (lambda x: ( ( x[0], "doc",  x[1][0] ),
                                              ( x[0], "para", x[1][1] * 10 ),
