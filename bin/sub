@@ -63,7 +63,7 @@ prod () {
     ARG_DEFAULT_PARALLELISM=256
 #    export MESOS_MASTER=mesos://$(hostname):5050
 #    export MESOS_MASTER=mesos://stars-c1.edc.renci.org:5050
-    export MESOS_MASTER=zk://stars-c0.edc.renci.org:2181/mesos
+    export MESOS_MASTER=mesos://zk://stars-c0.edc.renci.org:2181/mesos
     PROXY_SETTINGS='--conf "spark.driver.extraJavaOptions=-Dhttp.proxyHost=gateway.ad.renci.org -Dhttp.proxyPort=8080 -Dhttps.proxyHost=gateway.ad.renci.org -Dhttps.proxyPort=8080" '
     EXTRA_JAVA_OPTS="-Dhttp.proxyHost=gateway.ad.renci.org -Dhttp.proxyPort=8080 -Dhttps.proxyHost=gateway.ad.renci.org -Dhttps.proxyPort=8080"
 
@@ -281,7 +281,7 @@ execute_eval () {
 
         EVAL_SLICES=10
         EVAL_PARTS=$(( 32 * 6 * 3 )) # 32 cores x 5 tasks x 3 (spark constant)
-        EVAL_SAMPLE=0.2 #1
+        EVAL_SAMPLE=1
     }
     e$env
     mkdir -p $EVALOUTPUT

@@ -32,7 +32,6 @@ from pyspark.sql import SQLContext
 
 
 import matplotlib.pyplot as plt
-
 import numpy as np
 import seaborn as sns
 
@@ -152,6 +151,103 @@ class Guesses(object):
                 union (false_negative)
         return union.map (lambda v: v[1])
 
+days_per_year = 365
+quarter = int(days_per_year / 4) * 24 * 60 * 60
+two_years = 2 * days_per_year
+two_years_delta = datetime.timedelta (days=two_years)
+
+tp53_targets = map (lambda x : x.lower (), [
+    "AKAP10",
+    "AKAP11",
+    "AKAP12",
+    "AKAP2",
+    "AKAP6",
+    "CASK",
+    "CCNH",
+    "CDC42BPA",
+    "CDC42BPG",
+    "CDK1",
+    "CHUK",
+    "CKB",
+    "CKS1B",
+    "CKS2",
+    "CLK1",
+    "CLK2",
+    "FES",
+    "FGFR1",
+    "FGFR2",
+    "FGFR3",
+    "ILKAP",
+    "INSR",
+    "IRAK1",
+    "IRAK2",
+    "IRAK3",
+    "STK16",
+    "STK24",
+    "STK25",
+    "STK26",
+    "STK36",
+    "STK38",
+    "SYK",
+    "TAB1",
+    "TAB2",
+    "TAB3",
+    "TAOK1",
+    "TBK1",
+    "TEK",
+    "TJP2",
+    "WASF1",
+    "WEE1",
+    "WNK2",
+    "ZAP70",
+    "ATM",
+    "ATR",
+    "BMX",
+    "CDK2",
+    "CDKN1A",
+    "CDKN2A",
+    "CDKN2C",
+    "CHEK1",
+    "CHEK2",
+    "CLK3",
+    "CSNK1D",
+    "CSNK1E",
+    "CSNK2A1",
+    "CSNK2A2",
+    "CSNK2B",
+    "GSK3B",
+    "HIPK1",
+    "HIPK2",
+    "HIPK3",
+    "ICK",
+    "IKBKB",
+    "LRRK2",
+    "MAPK1",
+    "MAPK11",
+    "MAPK14",
+    "MAPK8",
+    "MAPKAPK5",
+    "MPP5",
+    "MTOR",
+    "NUAK1",
+    "PBK",
+    "PLK1",
+    "PRKAB2",
+    "PRKCD",
+    "PTK2",
+    "RB1CC1",
+    "SKP1",
+    "SRPK1",
+    "STK11",
+    "STK4",
+    "TK1",
+    "TP53",
+    "VRK1"
+])
+
+def is_special_interest (b):
+    return b is not None and ( b.L in tp53_targets or b.R in tp53_targets )
+
 class Evaluate(object):
     @staticmethod
     def is_training (b):
@@ -211,21 +307,115 @@ class Evaluate(object):
                 test.saveAsTextFile ("file://" + test_out_dir)
                 print ("   --> test: {0}".format (test_out_dir))
 
+    @staticmethod
+    def false_mention_histogram (binaries):
+        import numpy
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+        binaries = sorted (binaries, key=lambda b : b.date)
+        dates = map (lambda b : b.date, binaries)
+        dates = [ d for d in dates if d is not None ]
+        diffs = [abs(v - dates[(i+1)%len(dates)]) for i, v in enumerate(dates)]
+
+        if len(diffs) > 500:
+            key = "{0}@{1}".format (binaries[0].L, binaries[0].R)
+            output_dir = "/projects/stars/var/chemotext/chart/false"
+            outfile = "{0}/false_{1}_{2}.png".format (output_dir, key, len(diffs))
+            try:
+                if len(diffs) > 0:
+                    diffs.insert (0, diffs.pop ())
+                plt.clf ()
+                g = sns.distplot(diffs,
+                                 bins=10,
+                                 rug=True,
+                                 axlabel="Mention Frequency : {0}".format (key));
+                g.axes.set_title('Mention Frequency Distribution', fontsize=14)
+                g.set_xlabel("Time",size = 14)
+                g.set_ylabel("Probability",size = 14)
+                plt.savefig (outfile)
+            except:
+                traceback.print_exc ()
+
+        return []
 
     @staticmethod
-    def process_before (binaries):
-        result = sorted (binaries, key=lambda b: b.date)
-        return result
+    def true_mention_histogram (binaries):
+        import numpy
+        import matplotlib.pyplot as plt
+        import seaborn as sns
 
-    @staticmethod
-    def delete_after (binaries):
-        result = sorted (binaries, key=lambda b: b.date)
-        fact_pos = -1
-        for idx, b in enumerate (binaries):
+        result = []
+        ctd_date = None
+        is_fact = False
+
+        if len(binaries) == 0:
+            return result
+
+        key = "{0}@{1}".format (binaries[0].L, binaries[0].R).\
+              replace ("\n", "_").\
+              replace (" ", "_")
+
+        # get mentions before the CTD note date        
+        mentions = []
+        for b in binaries:
+            if b.date is None:
+                continue
+            mentions.append (b.date)
             if b.fact:
-                fact_pos = idx
+                is_fact = True
+                ctd_date = b.date
                 break
-        return result [0 : fact_pos] if fact_pos > -1 else []
+
+        special_interest = is_special_interest (binaries[0])
+
+        # bin these dates for a two year period before the ctd date
+
+        # hack: make ctd date something if is a CTD fact for now.
+        if is_fact and ctd_date is None and len(mentions) > 0:
+            ctd_date = mentions [ len(mentions) - 1]
+            print ("   >>>> Set ctd date to {0}".format (ctd_date))
+
+        if ctd_date is None:
+            result = []
+            print ("    --- ctd date is NONE")
+        elif len(mentions) < 300 and not special_interest:
+            print ("    --- mentions < 300")
+            result = mentions
+        elif len(mentions) > 1:
+            print ("    --- plotting mentions")
+            result = mentions
+
+            try:
+                output_dir = "/projects/stars/var/chemotext/chart"
+                with open ("{0}/log.txt".format (output_dir), "a") as stream:
+                    stream.write ("{0} {1}\n".format (key, mentions))
+
+                years = 10
+                traceback_delta = datetime.timedelta (days=days_per_year * years)
+                traceback = datetime.datetime.fromtimestamp (ctd_date) - traceback_delta
+                start = int (time.mktime (traceback.timetuple ()))
+
+                outfile = "{0}/before_t_{1}_{2}.png".format (output_dir, key, len(result))
+                if special_interest:
+                    outfile = "{0}/spec_before_t_{1}_{2}.png".format (output_dir, key, len(result))
+                print "generating {0}".format (outfile)
+
+                bins=range (start, ctd_date, quarter)
+                plt.clf ()
+                g = sns.distplot (result,
+                                  bins=bins,
+                                  rug=True,
+                                  axlabel="Mention Date : {0}".format (key),
+                                  label="Mention Density");
+                g.axes.set_title('Mention Distribution', fontsize=14)
+                g.set_xlabel("Time", size = 14)
+                g.set_ylabel("Probability", size = 14)
+
+                plt.savefig (outfile)
+            except:
+                traceback.print_exc ()
+
+        return result
 
     @staticmethod
     def plot (conf):
@@ -239,44 +429,38 @@ class Evaluate(object):
         max_year = datetime.datetime.now().year
         years = np.arange (min_year, max_year)
         df = None
-        before = sc.parallelize ([])
+        before = sc.parallelize ([], numSlices=conf.spark_conf.parts)
         distances = sc.parallelize ([])
-        # TODO - REMOVE (DEBUG)
-        #conf.slices = 1
+
         for slice_n in range (0, conf.slices):
+
+            ''' Read slices '''
             print "reading slice {0}".format (slice_n)
             files = ",".join ([
-                os.path.join (conf.output_dir, "annotated", str(slice_n), "train") ])
-            #os.path.join (conf.output_dir, "annotated", str(slice_n), "test") ])
+                os.path.join (conf.output_dir, "annotated", str(slice_n), "train"),
+                os.path.join (conf.output_dir, "annotated", str(slice_n), "test")
+            ])
             annotated = sc.textFile (files, minPartitions=conf.spark_conf.parts). \
-                        map (lambda t : BinaryDecoder().decode (t))
+                        map    (lambda t : BinaryDecoder().decode (t)). \
+                        filter (lambda x : not isinstance (x, Fact))
 
-            # Sum distances grouped by fact attribute (T/F)
-            slice_distances = annotated. \
-                              filter (lambda x : not isinstance (x, Fact)). \
-                              map (lambda x : ( x.fact, ( x.docDist, x.paraDist, x.sentDist) )).\
-                              reduceByKey (lambda x,y: ( x[0] + y[0], x[1] + y[1], x[2] + y[2] ))
-            distances = distances.union (slice_distances).\
-                        reduceByKey (lambda x,y: ( x[0] + y[0], x[1] + y[1], x[2] + y[2] ))
-            print "Distances size:{0} elements:{1}".format (distances.count (), distances.collect ())
+            ''' Sum distances grouped by fact attribute (T/F) '''
+            slice_distances = annotated.map (lambda x : ( x.fact, x.docDist, x.paraDist, x.sentDist) )
+#                              map    (lambda x : ( x.fact, ( x.docDist, x.paraDist, x.sentDist) )). \
+#                              map    (lambda x : ( x[0], x[1][0], x[1][1], x[1][2] ))
+            distances = distances.union (slice_distances)
+            print ("   Distances count({0}): {1}".format (slice_n, distances.count ()))
 
             # Find binaries detected before CTD reference article date
-            early = annotated. \
-                           map         (lambda b : ( simplekey(b), [b] )). \
-                           reduceByKey (lambda x,y : x + y). \
-                           mapValues   (lambda x : Evaluate.process_before (x)). \
-                           takeOrdered (10, key=lambda x: -len(x[1]))
-            p_by_year = {}
-            for k,v in early:
-                for b in v:
-                    year = datetime.datetime.fromtimestamp (b.date).year if b.date else 0
-                    if isinstance (year, int) and year > min_year and year <= max_year:
-                        p_by_year [year] = p_by_year[year] + 1 if year in p_by_year else 0
-            before = before.union (sc.parallelize([ (year, p_by_year[year]) for year in p_by_year ])).\
-                     reduceByKey (lambda x,y: x + y)
-            print "before size => {0}".format (before.count ())
-            print "before collect() => {0}".format (before.collect ())
+            # 1. Get binaries only - no facts.
+            # 2. Then partition to find fact/non-fact sets.
+            before = before.union (annotated. \
+                                   map         (lambda b : ( simplekey(b), [ b ] )). \
+                                   reduceByKey (lambda x,y : x + y))
+            print ("   Before count({0}): {1}".format (slice_n, distances.count ()))
+#            break
 
+            '''
             # Count by year
             countByYear = annotated. \
                 map (lambda b: ( datetime.datetime.fromtimestamp (b.date).year if b.date else 0, 1) ). \
@@ -285,54 +469,51 @@ class Evaluate(object):
                 sample (withReplacement=False, fraction=sample, seed=12345)
             df = df.union (countByYear) if df else countByYear
             df = df.reduceByKey (lambda x, y: x + y)
+            '''
 
+        '''
         if distances.count () > 0:
 
             #https://stanford.edu/~mwaskom/software/seaborn/generated/seaborn.boxplot.html
             # Box and Whiskers plot:
             
-            print "Distances: {0}".format (distances.collect ())
-            d = distances.\
-                map (lambda x : ( x[0], 0, x[1][0] ) ).\
-                toDF().toPandas (). \
-                rename (columns = { "_1" : "truth",
-                                    "_2" : "type",
-                                    "_3" : "count" })
+            d = distances. \
+                map (lambda x : ( x[0], x[1], x[2], x[3] ) ). \
+                sample (False, 0.25). \
+                toDF().toPandas ()
+
             print d
+
+            d = d.rename (columns = { "_1" : "truth",
+                                      "_2" : "doc_dist",
+                                      "_3" : "par_dist",
+                                      "_4" : "sen_dist"})
+
+            #            print d
             fig, ax = plt.subplots()
-            ax = sns.boxplot(x="truth", y="count", data=d, palette="Set3", ax=ax)
-                
-            plt.savefig ("whisker.png")
+            sns.set_style ("whitegrid")
+            ax = sns.boxplot(x="truth", y="doc_dist", data=d, palette="Set3", ax=ax)
+            plt.savefig ("doc-whisker.png")
 
-            distances = distances. \
-                        flatMap (lambda x: ( ( x[0], "doc",  x[1][0] ),
-                                             ( x[0], "para", x[1][1] * 10 ),
-                                             ( x[0], "sent", x[1][2] * 10 ))).\
-                        toDF().toPandas ().\
-                        rename (columns = { "_1" : "truth",
-                                            "_2" : "type",
-                                            "_3" : "count" })
-            g = sns.factorplot(x="truth", y="count", col="type",
-                               data=distances, saturation=.5,
-                               kind="bar", ci=None, aspect=.6).\
-                set_axis_labels("", "Count").\
-                set_xticklabels(["False", "True"]).\
-                set_titles("{col_name} {col_var}").\
-                despine(left=True).\
-                savefig ("distances.png")
+            ax = sns.boxplot(x="truth", y="par_dist", data=d, palette="Set3", ax=ax)
+            plt.savefig ("par-whisker.png")
 
-        if before is not None and before.count () > 0:
-            before = before.toDF().toPandas ()
-            before = before.rename (columns = { '_1' : 'year' } )
-            before = before.rename (columns = { '_2' : 'before' } )
-            g = sns.factorplot (data=before, x="year", y="before",
-                                kind="bar", hue="year",
-                                size=10, aspect=1.5, order=years)
-            sns.set_style("ticks")
-            g.set_xticklabels (step=2)
-            g.savefig ("before.png")
+            ax = sns.boxplot(x="truth", y="sen_dist", data=d, palette="Set3", ax=ax)
+            plt.savefig ("sen-whisker.png")
+        '''
 
-        if df is not None and df.count () > 0:
+        if before.count () > 0:
+            before = before.reduceByKey (lambda x, y : x + y) 
+            true_mentions = before. \
+                            mapValues (lambda x : Evaluate.true_mention_histogram (x)). \
+                            filter (lambda x : len(x[1]) > 0)
+            print ("true mentions: {0}".format (true_mentions.count ()))
+            false_mentions = before. \
+                             subtractByKey (true_mentions). \
+                             mapValues   (lambda x : Evaluate.false_mention_histogram (x))
+            print ("false mentions: {0}".format (false_mentions.count ()))
+        '''
+        if False and df is not None and df.count () > 0:
             df = df.toDF().toPandas ()
             df = df.rename (columns = { '_1' : 'year' } )
             df = df.rename (columns = { '_2' : 'relationships' } )
@@ -341,6 +522,7 @@ class Evaluate(object):
                                 size=10, aspect=1.5, order=years)
             g.set_xticklabels (step=2)
             g.savefig ("figure.png")
+        '''
 
     @staticmethod
     def flatten_dist(truth, dist):
@@ -379,6 +561,7 @@ def main ():
             ctdAB          = args.ctdAB,
             ctdBC          = args.ctdBC,
             ctdAC          = args.ctdAC))
+
     if args.plot:
         Evaluate.plot (conf)
     else:

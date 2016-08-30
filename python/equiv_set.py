@@ -62,7 +62,7 @@ class EquivalentSet(object):
                 print ("     4. REk_key: l:{0} r:{1} dist:{2}".format (e.L, e.R, e.docDist))
 
     @staticmethod
-    def make_equiv_set (L, R, threshold=200):
+    def make_equiv_set (L, R, threshold=800):
         logger = LoggingUtil.init_logging (__file__)
         pairs = {}
         # Create all possible pairs
