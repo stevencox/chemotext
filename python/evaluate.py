@@ -42,11 +42,13 @@ def make_key (L, R, pmid):
 
 class Facts(object):
     @staticmethod
-    def load_facts (sqlContext, ctdRef, L_index, R_index, pmid_index):
+    def load_facts (sqlContext, tableRef, L_index, R_index, pmid_index):
+        with open ("debug.log", "a") as stream:
+            stream.write ("  load facts -> conf : {0}".format (tableRef))
         return sqlContext.read.                                     \
             format('com.databricks.spark.csv').                     \
             options(comment='#').                                   \
-            load(ctdRef).rdd.                                       \
+            load(tableRef).rdd.                                       \
             map (lambda a : (a["C{0}".format (L_index)].lower (),
                              a["C{0}".format (R_index)].lower (),
                              a["C{0}".format (pmid_index)] ))
@@ -62,12 +64,13 @@ class Facts(object):
                 result.append (t)
         return result
     @staticmethod
-    def get_facts (sc, ctdAB, ctdBC, ctdAC):
+    def get_facts (sc, conf):
         sqlContext = SQLContext(sc)
-        ab = Facts.load_facts (sqlContext, ctdAB, 0, 3, 10)
-        bc = Facts.load_facts (sqlContext, ctdBC, 0, 2, 8)
-        ac = Facts.load_facts (sqlContext, ctdAC, 0, 3, 9)
-        reference_binaries = [ ab, bc, ac ]
+        ab = Facts.load_facts (sqlContext, conf.ctdAB, 0, 3, 10)
+        bc = Facts.load_facts (sqlContext, conf.ctdBC, 0, 2, 8)
+        ac = Facts.load_facts (sqlContext, conf.ctdAC, 0, 3, 9)
+        bb = Facts.load_facts (sqlContext, conf.geneGene, 0, 2, 4)
+        reference_binaries = [ ab, bc, ac, bb ]
         return sc.union (reference_binaries).flatMap (Facts.expand_ref_binaries).cache ()
 
 class Guesses(object):
@@ -263,11 +266,11 @@ class Evaluate(object):
         logger.info ("Evaluating Chemotext2 output: {0}".format (conf.input_dir))
         sc = SparkUtil.get_spark_context (conf.spark_conf)
         logger.info ("Loading facts")
-        facts = Facts.get_facts (sc, conf.ctd_conf.ctdAB, conf.ctd_conf.ctdBC, conf.ctd_conf.ctdAC)
+        facts = Facts.get_facts (sc, conf.ctd_conf)
         logger.info ("Listing input files")
         articles = SUtil.get_article_paths (conf.input_dir)
         for slice_n in range (0, conf.slices):
-            output_dir = os.path.join (conf.output_dir, "annotated", str(slice_n))
+            output_dir = os.path.join (conf.output_dir, "eval", "annotated", str(slice_n))
             if os.path.exists (output_dir):
                 logger.info ("Skipping existing directory {0}".format (output_dir))
             else:
@@ -308,7 +311,7 @@ class Evaluate(object):
                 print ("   --> test: {0}".format (test_out_dir))
 
     @staticmethod
-    def false_mention_histogram (binaries):
+    def false_mention_histogram (binaries, output_dir):
         import numpy
         import matplotlib.pyplot as plt
         import seaborn as sns
@@ -319,7 +322,6 @@ class Evaluate(object):
 
         if len(diffs) > 500:
             key = "{0}@{1}".format (binaries[0].L, binaries[0].R)
-            output_dir = "/projects/stars/var/chemotext/chart/false"
             outfile = "{0}/false_{1}_{2}.png".format (output_dir, key, len(diffs))
             try:
                 if len(diffs) > 0:
@@ -339,13 +341,13 @@ class Evaluate(object):
         return []
 
     @staticmethod
-    def true_mention_histogram (binaries):
+    def true_mention_histogram (binaries, output_dir):
         import numpy
         import matplotlib.pyplot as plt
         import seaborn as sns
 
         result = []
-        ctd_date = None
+        fact_date = None
         is_fact = False
 
         if len(binaries) == 0:
@@ -355,7 +357,6 @@ class Evaluate(object):
               replace ("\n", "_").\
               replace (" ", "_")
 
-        # get mentions before the CTD note date        
         mentions = []
         for b in binaries:
             if b.date is None:
@@ -363,19 +364,16 @@ class Evaluate(object):
             mentions.append (b.date)
             if b.fact:
                 is_fact = True
-                ctd_date = b.date
+                fact_date = b.date
                 break
 
         special_interest = is_special_interest (binaries[0])
 
-        # bin these dates for a two year period before the ctd date
+        if is_fact and fact_date is None and len(mentions) > 0:
+            fact_date = mentions [ len(mentions) - 1]
+            print ("   >>>> Set ctd date to {0}".format (fact_date))
 
-        # hack: make ctd date something if is a CTD fact for now.
-        if is_fact and ctd_date is None and len(mentions) > 0:
-            ctd_date = mentions [ len(mentions) - 1]
-            print ("   >>>> Set ctd date to {0}".format (ctd_date))
-
-        if ctd_date is None:
+        if fact_date is None:
             result = []
             print ("    --- ctd date is NONE")
         elif len(mentions) < 300 and not special_interest:
@@ -386,36 +384,72 @@ class Evaluate(object):
             result = mentions
 
             try:
-                output_dir = "/projects/stars/var/chemotext/chart"
                 with open ("{0}/log.txt".format (output_dir), "a") as stream:
                     stream.write ("{0} {1}\n".format (key, mentions))
 
+                '''
                 years = 10
                 traceback_delta = datetime.timedelta (days=days_per_year * years)
-                traceback = datetime.datetime.fromtimestamp (ctd_date) - traceback_delta
+                traceback = datetime.datetime.fromtimestamp (fact_date) - traceback_delta
                 start = int (time.mktime (traceback.timetuple ()))
+                '''
 
                 outfile = "{0}/before_t_{1}_{2}.png".format (output_dir, key, len(result))
                 if special_interest:
                     outfile = "{0}/spec_before_t_{1}_{2}.png".format (output_dir, key, len(result))
                 print "generating {0}".format (outfile)
 
-                bins=range (start, ctd_date, quarter)
+                start = result [0]
+                
+                bins=range (start, fact_date, quarter)
                 plt.clf ()
-                g = sns.distplot (result,
-                                  bins=bins,
-                                  rug=True,
-                                  axlabel="Mention Date : {0}".format (key),
-                                  label="Mention Density");
-                g.axes.set_title('Mention Distribution', fontsize=14)
+                g = sns.distplot (result, bins=bins, rug=True)
+                g.axes.set_title("Mention Distribution: {0}".format (key), fontsize=14)
                 g.set_xlabel("Time", size = 14)
                 g.set_ylabel("Probability", size = 14)
-
                 plt.savefig (outfile)
             except:
                 traceback.print_exc ()
-
         return result
+
+    def plot_mentions (binaries, output_dir, prefix):
+        import numpy
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+
+        if len(binaries) == 0:
+            return []
+
+        key = "{0}@{1}".format (binaries[0].L, binaries[0].R).\
+              replace ("\n", "_").\
+              replace (" ", "_")
+        special_interest = is_special_interest (binaries[0])
+        mentions = map (lambda b : b.date, binaries)
+
+        if len(mentions) < 300 and not special_interest:
+            print ("    --- mentions < 300")
+        elif len(mentions) > 1:
+            try:
+                with open ("{0}/log.txt".format (output_dir), "a") as stream:
+                    stream.write ("{0} {1}\n".format (key, mentions))
+
+                file_pat = "{0}/spec_{1}_{2}_{3}.png" if special_interest else "{0}/{1}_{2}_{3}.png"
+                outfile = file_pat.format (output_dir, prefix, key, len(result))
+                print ("generating {0}".format (outfile))
+
+                fact_date = mentions [ len(mentions) - 1 ]
+                start = mentions [0]                
+                bins=range (start, fact_date, quarter)
+
+                plt.clf ()
+                g = sns.distplot (mentions, bins=bins, rug=True)
+                g.axes.set_title("Mention Distribution: {0}".format (key), fontsize=14)
+                g.set_xlabel("Time", size = 14)
+                g.set_ylabel("Probability", size = 14)
+                plt.savefig (outfile)
+            except:
+                traceback.print_exc ()
+        return mentions
 
     @staticmethod
     def plot (conf):
@@ -446,8 +480,6 @@ class Evaluate(object):
 
             ''' Sum distances grouped by fact attribute (T/F) '''
             slice_distances = annotated.map (lambda x : ( x.fact, x.docDist, x.paraDist, x.sentDist) )
-#                              map    (lambda x : ( x.fact, ( x.docDist, x.paraDist, x.sentDist) )). \
-#                              map    (lambda x : ( x[0], x[1][0], x[1][1], x[1][2] ))
             distances = distances.union (slice_distances)
             print ("   Distances count({0}): {1}".format (slice_n, distances.count ()))
 
@@ -458,7 +490,7 @@ class Evaluate(object):
                                    map         (lambda b : ( simplekey(b), [ b ] )). \
                                    reduceByKey (lambda x,y : x + y))
             print ("   Before count({0}): {1}".format (slice_n, distances.count ()))
-#            break
+            break
 
             '''
             # Count by year
@@ -500,17 +532,24 @@ class Evaluate(object):
 
             ax = sns.boxplot(x="truth", y="sen_dist", data=d, palette="Set3", ax=ax)
             plt.savefig ("sen-whisker.png")
-        '''
+        ''' 
 
         if before.count () > 0:
             before = before.reduceByKey (lambda x, y : x + y) 
+
+            true_plots = os.path.join (conf.output_dir, "chart")
             true_mentions = before. \
-                            mapValues (lambda x : Evaluate.true_mention_histogram (x)). \
+                            mapValues (lambda x : Evaluate.plot_mentions (x, true_plots, "T")). \
                             filter (lambda x : len(x[1]) > 0)
             print ("true mentions: {0}".format (true_mentions.count ()))
-            false_mentions = before. \
-                             subtractByKey (true_mentions). \
-                             mapValues   (lambda x : Evaluate.false_mention_histogram (x))
+
+            false_plots = os.path.join (conf.output_dir, "chart", "false")
+            false_mentions = before.subtractByKey (true_mentions)            
+            false_frequency = false_mentions. \
+                              mapValues   (lambda x : Evaluate.false_mention_histogram (x, false_plots))
+            false_mentions = false_mentions.\
+                             mapValues   (lambda x : Evaluate.plot_mentions (x, false_plots, "F"))
+            
             print ("false mentions: {0}".format (false_mentions.count ()))
         '''
         if False and df is not None and df.count () > 0:
@@ -546,6 +585,7 @@ def main ():
     parser.add_argument("--ctdAB",  help="Path to CTD AB data")
     parser.add_argument("--ctdBC",  help="Path to CTD BC data")
     parser.add_argument("--ctdAC",  help="Path to CTD AC data")
+    parser.add_argument("--geneGene",  help="Gene interaction data")
     parser.add_argument("--plot",   help="Plot data", action='store_true')
     args = parser.parse_args()
     conf = EvaluateConf (
@@ -560,7 +600,8 @@ def main ():
         ctd_conf = CTDConf (
             ctdAB          = args.ctdAB,
             ctdBC          = args.ctdBC,
-            ctdAC          = args.ctdAC))
+            ctdAC          = args.ctdAC,
+            geneGene       = args.geneGene))
 
     if args.plot:
         Evaluate.plot (conf)

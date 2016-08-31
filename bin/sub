@@ -135,10 +135,17 @@ init () {
 }
 
 config () {
+    # Pub med articles:
     PUBMEDC=$DATA_HOME/pubmed/articles
+
+    # Ref data:
     CTDACPATH=$DATA_HOME/ctd/CTD_chemicals_diseases.csv
     CTDABPATH=$DATA_HOME/ctd/CTD_chem_gene_ixns.csv
     CTDBCPATH=$DATA_HOME/ctd/CTD_genes_diseases.csv
+#    CTD_GENEGENE=$DATA_HOME/intact/IntActKinaseP53Pairs_083016.csv
+    CTD_GENEGENE=$DATA_HOME/pathwaycommons/PathwayCommons.8.All.EXTENDED_BINARY_SIF.hgnc.txt
+
+    # Lexer configuration
     LEXER_CONFIGPATH=$TMCHEM_HOME/config/banner_JOINT_${env}.xml
     LEXER_CACHEFILE=$TMCHEM_HOME/cacheFile.tsv
     LEXER_DICTIONARY=$TMCHEM_HOME/data/dict.txt
@@ -269,24 +276,20 @@ execute_eval () {
     edev () {
         INPUTPATH=/Users/scox/dev/starshome/app/chemotext/data/output.mesh.full
         INPUTPATH=$OUTPUTPATH #/projects/stars/var/chemotext/output.mesh.full.2016-07-09
-        EVALOUTPUT=/Users/scox/dev/starshome/var/chemotext/eval
         EVAL_SLICES=2
         EVAL_PARTS=1
         EVAL_SAMPLE=1
     }
     eprod () {
         INPUTPATH=/projects/stars/var/chemotext/output.mesh.full.2016-07-09
-        EVALOUTPUT=$DATA_HOME/eval
-#	INUTPATH=$DATA_HOME/output.mesh.full.2016-07-09
-
         EVAL_SLICES=10
         EVAL_PARTS=$(( 32 * 6 * 3 )) # 32 cores x 5 tasks x 3 (spark constant)
         EVAL_SAMPLE=1
     }
     e$env
-    mkdir -p $EVALOUTPUT
-#$VENV \
-#/Users/scox/dev/plot \
+    mkdir -p $DATA_HOME/eval
+    mkdir -p $DATA_HOME/eval/chart/false
+    rm $DATA_HOME/eval/chart/log.txt
     spark \
 	--py-files python/equiv_set.py,python/chemotext_util.py \
         $APP_HOME/python/evaluate.py \
@@ -294,13 +297,14 @@ execute_eval () {
         --name  "Chemotext2:Evaluate(Article)" \
         --venv  $VENV \
         --input $INPUTPATH \
-	--output $EVALOUTPUT \
+	--output $DATA_HOME \
         --slices $EVAL_SLICES \
         --parts $EVAL_PARTS \
         --sample $EVAL_SAMPLE \
         --ctdAB $CTDABPATH \
         --ctdBC $CTDBCPATH \
         --ctdAC $CTDACPATH \
+        --geneGene $CTD_GENEGENE \
         $*
 }
 execute_plot () {

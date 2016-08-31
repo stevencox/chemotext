@@ -340,10 +340,11 @@ class EvaluateConf0(Conf):
         self.ctdBC = ctdBC
         self.ctdAC = ctdAC
 class CTDConf(object):
-    def __init__(self, ctdAB, ctdBC, ctdAC):
+    def __init__(self, ctdAB, ctdBC, ctdAC, geneGene):
         self.ctdAB = ctdAB
         self.ctdBC = ctdBC
         self.ctdAC = ctdAC
+        self.geneGene = geneGene
 class EvaluateConf(Conf):
     def __init__(self, spark_conf, input_dir, output_dir, slices, sample, ctd_conf):
         super(EvaluateConf, self).__init__(spark_conf, input_dir, output_dir)
