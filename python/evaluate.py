@@ -28,26 +28,26 @@ from chemotext_util import SparkUtil
 from equiv_set import EquivalentSet
 from itertools import chain
 from operator import add
+from plot import Plot
 from pyspark.sql import SQLContext
-
-
-import matplotlib.pyplot as plt
-import numpy as np
-import seaborn as sns
 
 logger = LoggingUtil.init_logging (__file__)
 
 def make_key (L, R, pmid):
     return "{0}->{1} i={2}".format (L, R, pmid)
 
+def simplekey (b):
+    return "{0}@{1}".format (b.L, b.R)
+
 class Facts(object):
     @staticmethod
-    def load_facts (sqlContext, tableRef, L_index, R_index, pmid_index):
+    def load_facts (sqlContext, tableRef, L_index, R_index, pmid_index, delimiter=","):
         with open ("debug.log", "a") as stream:
             stream.write ("  load facts -> conf : {0}".format (tableRef))
         return sqlContext.read.                                     \
             format('com.databricks.spark.csv').                     \
             options(comment='#').                                   \
+            options(delimiter=delimiter).                           \
             load(tableRef).rdd.                                       \
             map (lambda a : (a["C{0}".format (L_index)].lower (),
                              a["C{0}".format (R_index)].lower (),
@@ -57,10 +57,15 @@ class Facts(object):
         result = []
         pmids = binary[2] if len(binary) > 1 else None
         if pmids:
-            pmid_list = pmids.split ("|") if "|" in pmids else [ pmids ]
+            if "|" in pmids:
+                pmid_list = pmids.split ("|")
+            elif ";" in pmids:
+                pmid_list = pmids.split (";")
+            else:
+                pmid_list = [ pmids ]
             for p in pmid_list:
                 f = Fact (L=binary[0], R=binary[1], pmid=p)
-                t = ( make_key(f.L, f.R, f.pmid), f ) 
+                t = ( make_key(f.L, f.R, f.pmid), f )
                 result.append (t)
         return result
     @staticmethod
@@ -69,7 +74,7 @@ class Facts(object):
         ab = Facts.load_facts (sqlContext, conf.ctdAB, 0, 3, 10)
         bc = Facts.load_facts (sqlContext, conf.ctdBC, 0, 2, 8)
         ac = Facts.load_facts (sqlContext, conf.ctdAC, 0, 3, 9)
-        bb = Facts.load_facts (sqlContext, conf.geneGene, 0, 2, 4)
+        bb = Facts.load_facts (sqlContext, conf.geneGene, 0, 2, 4, delimiter="\t")
         reference_binaries = [ ab, bc, ac, bb ]
         return sc.union (reference_binaries).flatMap (Facts.expand_ref_binaries).cache ()
 
@@ -154,10 +159,10 @@ class Guesses(object):
                 union (false_negative)
         return union.map (lambda v: v[1])
 
-days_per_year = 365
-quarter = int(days_per_year / 4) * 24 * 60 * 60
-two_years = 2 * days_per_year
-two_years_delta = datetime.timedelta (days=two_years)
+#days_per_year = 365
+#quarter = int(days_per_year / 4) * 24 * 60 * 60
+#two_years = 2 * days_per_year
+#two_years_delta = datetime.timedelta (days=two_years)
 
 tp53_targets = map (lambda x : x.lower (), [
     "AKAP10",
@@ -296,8 +301,6 @@ class Evaluate(object):
                 logger.info ("Generating annotated output for " + output_dir)
                 os.makedirs (output_dir)
 
-                #Evaluate.plot (sc, annotated, conf.sample)
-                
                 train = annotated.filter (lambda b : Evaluate.is_training (b)).\
                         map(lambda b : json.dumps (b, cls=BinaryEncoder))
                 train_out_dir = os.path.join (output_dir, 'train')
@@ -309,7 +312,7 @@ class Evaluate(object):
                 test_out_dir = os.path.join (output_dir, 'test')
                 test.saveAsTextFile ("file://" + test_out_dir)
                 print ("   --> test: {0}".format (test_out_dir))
-
+    '''
     @staticmethod
     def false_mention_histogram (binaries, output_dir):
         import numpy
@@ -320,7 +323,7 @@ class Evaluate(object):
         dates = [ d for d in dates if d is not None ]
         diffs = [abs(v - dates[(i+1)%len(dates)]) for i, v in enumerate(dates)]
 
-        if len(diffs) > 500:
+        if len(diffs) > 700: # Avoid writing a graph for every false thing.
             key = "{0}@{1}".format (binaries[0].L, binaries[0].R)
             outfile = "{0}/false_{1}_{2}.png".format (output_dir, key, len(diffs))
             try:
@@ -387,13 +390,6 @@ class Evaluate(object):
                 with open ("{0}/log.txt".format (output_dir), "a") as stream:
                     stream.write ("{0} {1}\n".format (key, mentions))
 
-                '''
-                years = 10
-                traceback_delta = datetime.timedelta (days=days_per_year * years)
-                traceback = datetime.datetime.fromtimestamp (fact_date) - traceback_delta
-                start = int (time.mktime (traceback.timetuple ()))
-                '''
-
                 outfile = "{0}/before_t_{1}_{2}.png".format (output_dir, key, len(result))
                 if special_interest:
                     outfile = "{0}/spec_before_t_{1}_{2}.png".format (output_dir, key, len(result))
@@ -450,6 +446,43 @@ class Evaluate(object):
             except:
                 traceback.print_exc ()
         return mentions
+    '''
+
+    @staticmethod
+    def plot_before (before, conf):
+        if before.count () <= 0:
+            return
+        before = before.reduceByKey (lambda x, y : x + y) 
+        
+        true_plots = os.path.join (conf.output_dir, "chart")
+        true_mentions = before. \
+                        mapValues (lambda x : Plot.plot_mentions (x, true_plots, "T")). \
+                        filter (lambda x : len(x[1]) > 0)
+        logger.info ("true mentions: {0}".format (true_mentions.count ()))
+
+        false_plots = os.path.join (conf.output_dir, "chart", "false")
+        false_mentions = before.subtractByKey (true_mentions)
+        false_frequency = false_mentions. \
+                          mapValues   (lambda x : Plot.false_mention_histogram (x, false_plots))
+
+        false_mentions = false_mentions.\
+                         mapValues   (lambda x : Evaluate.plot_mentions (x, false_plots, "F"))            
+        logger.info ("false mentions: {0}".format (false_mentions.count ()))
+
+    @staticmethod
+    def plot_distances (distances):
+        if distances.count () <= 0:
+            return
+
+        d = distances. \
+            map (lambda x : ( x[0], x[1], x[2], x[3] ) ). \
+            sample (False, 0.15). \
+            toDF().toPandas ()
+        d = d.rename (columns = { "_1" : "truth",
+                                  "_2" : "doc_dist",
+                                  "_3" : "par_dist",
+                                  "_4" : "sen_dist" })
+        Plot.plot_distances (d)
 
     @staticmethod
     def plot (conf):
@@ -483,85 +516,14 @@ class Evaluate(object):
             distances = distances.union (slice_distances)
             print ("   Distances count({0}): {1}".format (slice_n, distances.count ()))
 
-            # Find binaries detected before CTD reference article date
-            # 1. Get binaries only - no facts.
-            # 2. Then partition to find fact/non-fact sets.
             before = before.union (annotated. \
                                    map         (lambda b : ( simplekey(b), [ b ] )). \
                                    reduceByKey (lambda x,y : x + y))
             print ("   Before count({0}): {1}".format (slice_n, distances.count ()))
-            break
+#            break
 
-            '''
-            # Count by year
-            countByYear = annotated. \
-                map (lambda b: ( datetime.datetime.fromtimestamp (b.date).year if b.date else 0, 1) ). \
-                filter (lambda y : isinstance (y[0], int) and y[0] > min_year and y[0] <= max_year ). \
-                reduceByKey (lambda x, y: x + y). \
-                sample (withReplacement=False, fraction=sample, seed=12345)
-            df = df.union (countByYear) if df else countByYear
-            df = df.reduceByKey (lambda x, y: x + y)
-            '''
-
-        '''
-        if distances.count () > 0:
-
-            #https://stanford.edu/~mwaskom/software/seaborn/generated/seaborn.boxplot.html
-            # Box and Whiskers plot:
-            
-            d = distances. \
-                map (lambda x : ( x[0], x[1], x[2], x[3] ) ). \
-                sample (False, 0.25). \
-                toDF().toPandas ()
-
-            print d
-
-            d = d.rename (columns = { "_1" : "truth",
-                                      "_2" : "doc_dist",
-                                      "_3" : "par_dist",
-                                      "_4" : "sen_dist"})
-
-            #            print d
-            fig, ax = plt.subplots()
-            sns.set_style ("whitegrid")
-            ax = sns.boxplot(x="truth", y="doc_dist", data=d, palette="Set3", ax=ax)
-            plt.savefig ("doc-whisker.png")
-
-            ax = sns.boxplot(x="truth", y="par_dist", data=d, palette="Set3", ax=ax)
-            plt.savefig ("par-whisker.png")
-
-            ax = sns.boxplot(x="truth", y="sen_dist", data=d, palette="Set3", ax=ax)
-            plt.savefig ("sen-whisker.png")
-        ''' 
-
-        if before.count () > 0:
-            before = before.reduceByKey (lambda x, y : x + y) 
-
-            true_plots = os.path.join (conf.output_dir, "chart")
-            true_mentions = before. \
-                            mapValues (lambda x : Evaluate.plot_mentions (x, true_plots, "T")). \
-                            filter (lambda x : len(x[1]) > 0)
-            print ("true mentions: {0}".format (true_mentions.count ()))
-
-            false_plots = os.path.join (conf.output_dir, "chart", "false")
-            false_mentions = before.subtractByKey (true_mentions)            
-            false_frequency = false_mentions. \
-                              mapValues   (lambda x : Evaluate.false_mention_histogram (x, false_plots))
-            false_mentions = false_mentions.\
-                             mapValues   (lambda x : Evaluate.plot_mentions (x, false_plots, "F"))
-            
-            print ("false mentions: {0}".format (false_mentions.count ()))
-        '''
-        if False and df is not None and df.count () > 0:
-            df = df.toDF().toPandas ()
-            df = df.rename (columns = { '_1' : 'year' } )
-            df = df.rename (columns = { '_2' : 'relationships' } )
-            g = sns.factorplot (data=df, x="year", y="relationships",
-                                kind="bar", hue="year",
-                                size=10, aspect=1.5, order=years)
-            g.set_xticklabels (step=2)
-            g.savefig ("figure.png")
-        '''
+        Evaluate.plot_distances (distances)
+        Evaluate.plot_before (before, conf)
 
     @staticmethod
     def flatten_dist(truth, dist):
@@ -569,9 +531,6 @@ class Evaluate(object):
         yield (truth, "sent", dist[1])
         yield (truth, "para", dist[2])
         
-def simplekey (b):
-    return "{0}@{1}".format (b.L, b.R)
-
 def main ():
     parser = argparse.ArgumentParser()
     parser.add_argument("--host",   help="Mesos master host")

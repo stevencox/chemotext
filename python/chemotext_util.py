@@ -10,9 +10,12 @@ import socket
 import sys
 import time
 import traceback
-from pyspark.sql import SQLContext
-from pyspark.sql import DataFrame
-from pyspark.sql.types import *
+try:
+    from pyspark.sql import SQLContext
+    from pyspark.sql import DataFrame
+    from pyspark.sql.types import *
+except:
+    pass
 from json import JSONEncoder
 from json import JSONDecoder
 import xml.parsers.expat

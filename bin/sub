@@ -255,18 +255,6 @@ execute_ct1 () {
 execute_pmidmap () {
     execute_ct1 --pmid --name "Chemotext2:CT1(PMID->Date)"
 }
-execute_equivset () {
-    INPUTPATH=$OUTPUTPATH #/projects/stars/var/chemotext/output.mesh.full.2016-07-09
-    spark \
-	--py-files python/equiv_set.py,python/chemotext_util.py \
-	$APP_HOME/python/eset.py \
-	--host   $MESOS_MASTER \
-	--name   "Chemotext2:ESet)" \
-	--venv   $VENV \
-        --input  $INPUTPATH \
-	--output $DATA_HOME/equiv \
-        --parts  $(( 32 * 6 * 2 )) # 32 cores x 5 tasks x 2
-}
 execute_test () {
     spark \
 	--py-files python/equiv_set.py,python/chemotext_util.py,python/evaluate.py \
@@ -291,7 +279,7 @@ execute_eval () {
     mkdir -p $DATA_HOME/eval/chart/false
     rm $DATA_HOME/eval/chart/log.txt
     spark \
-	--py-files python/equiv_set.py,python/chemotext_util.py \
+	--py-files python/equiv_set.py,python/chemotext_util.py,python/plot.py  \
         $APP_HOME/python/evaluate.py \
         --host  $MESOS_MASTER \
         --name  "Chemotext2:Evaluate(Article)" \
@@ -320,29 +308,6 @@ execute_w2v () {
         --home   $APP_HOME \
         --input  $PUBMEDC \
         --mesh   $MESHXML
-}
-
-execute_kinase () {
-    #INPUTPATH=$STARS_HOME/var/chemotext/output.tmchem
-    #PROQINASEDB=$STARS_HOME/var/chemotext/proqinase/kinase_synonyms.txt
-    #INTACTDB=$STARS_HOME/var/chemotext/intact/idA_P04637.txt
-    #MESH_KINASE_SYNONYMS=$APP_HOME/kinases.json
-    #KIN2PROT=$STARS_HOME/var/chemotext/kinase/kinase2uniprot.json
-    #W2V_MODEL=$DATA_HOME/w2v.model
-    spark \
-        --py-files python/chemotext_util.py \
-        $APP_HOME/python/kinase.py \
-        --master    $MESOS_MASTER \
-        --name      "Chemotext2:TP53-Kinase" \
-        --venv      $VENV \
-        --home      $APP_HOME \
-        --input     $INPUTPATH \
-        --intact    $INTACTDB \
-        --medline   $MEDLINE_DATA \
-        --proqinase $PROQINASEDB \
-        --mesh      $MESH_KINASE_SYNONYMS \
-        --kin2prot  $KIN2PROT \
-        --w2v       $W2V_MODEL
 }
 
 main $*
