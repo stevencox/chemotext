@@ -16,6 +16,8 @@ logger = LoggingUtil.init_logging (__file__)
 days_per_year = 365
 quarter = int(days_per_year / 8) * 24 * 60 * 60
 
+sns.set (style="white")
+
 class Plot(object):
 
     @staticmethod

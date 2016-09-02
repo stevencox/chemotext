@@ -33,6 +33,8 @@ from pyspark.sql import SQLContext
 
 logger = LoggingUtil.init_logging (__file__)
 
+debug_scale = 1
+
 def make_key (L, R, pmid):
     return "{0}->{1} i={2}".format (L, R, pmid)
 
@@ -40,6 +42,7 @@ def simplekey (b):
     return "{0}@{1}".format (b.L, b.R)
 
 class Facts(object):
+
     @staticmethod
     def load_facts (sqlContext, tableRef, L_index, R_index, pmid_index, delimiter=","):
         with open ("debug.log", "a") as stream:
@@ -68,6 +71,7 @@ class Facts(object):
                 t = ( make_key(f.L, f.R, f.pmid), f )
                 result.append (t)
         return result
+
     @staticmethod
     def get_facts (sc, conf):
         sqlContext = SQLContext(sc)
@@ -76,9 +80,12 @@ class Facts(object):
         ac = Facts.load_facts (sqlContext, conf.ctdAC, 0, 3, 9)
         bb = Facts.load_facts (sqlContext, conf.geneGene, 0, 2, 4, delimiter="\t")
         reference_binaries = [ ab, bc, ac, bb ]
-        return sc.union (reference_binaries).flatMap (Facts.expand_ref_binaries).cache ()
+        return sc.union (reference_binaries).flatMap (Facts.expand_ref_binaries).\
+            sample(False, debug_scale).\
+            cache ()
 
 class Guesses(object):
+
     @staticmethod
     def get_article_guesses (article):
         guesses = article.AB + article.BC + article.AC + article.BB
@@ -95,12 +102,15 @@ class Guesses(object):
                     print ("No date parsed in {0}".format (article.fileName))
                 result.append ( ( make_key (g.L, g.R, g.pmid), Guesses.distance (g) ) )
         return result
+
     @staticmethod
     def distance (b):
         b.dist = 1000000 * b.paraDist + 100000 * b.sentDist + b.docDist
         return b
+
     @staticmethod
     def get_guesses (sc, input_dir, partitions, articles, slices=1, slice_n=1):
+        from chemotext_util import LoggingUtil
         logger = LoggingUtil.init_logging (__file__)
         slice_size = int (len (articles) / slices)
         offset = slice_size * slice_n
@@ -111,15 +121,19 @@ class Guesses(object):
         logger.info ("   -- Guesses (input:{0}, articles:{1}, slice_size:{2}, offset:{3})".
                      format (input_dir, len(articles), slice_size, offset)) 
         articles = sc.parallelize (the_slice, partitions).  \
-                   flatMap (lambda p : EquivalentSet.get_article (p)).cache ()
+                   flatMap (lambda p : EquivalentSet.get_article (p)).\
+                   sample (False, debug_scale).\
+                   cache ()
         return (
             articles.flatMap (Guesses.get_article_guesses).cache (),
             articles.map (lambda a : a.id).collect ()
         )
+
     @staticmethod
     def mark_binary (binary, is_fact=True):
         binary.fact = is_fact
         return binary
+
     @staticmethod
     def trace_set (trace_level, label, rdd):
         logger = LoggingUtil.init_logging (__file__)
@@ -158,11 +172,6 @@ class Guesses(object):
                 union (false_positive). \
                 union (false_negative)
         return union.map (lambda v: v[1])
-
-#days_per_year = 365
-#quarter = int(days_per_year / 4) * 24 * 60 * 60
-#two_years = 2 * days_per_year
-#two_years_delta = datetime.timedelta (days=two_years)
 
 tp53_targets = map (lambda x : x.lower (), [
     "AKAP10",
@@ -257,6 +266,7 @@ def is_special_interest (b):
     return b is not None and ( b.L in tp53_targets or b.R in tp53_targets )
 
 class Evaluate(object):
+
     @staticmethod
     def is_training (b):
         result = False
@@ -265,15 +275,32 @@ class Evaluate(object):
         except ValueError:
             print ("(--) pmid: {0}".format (b.pmid))
         return result
+
+    @staticmethod
+    def to_csv_row (b):
+        # pubmed id, pubmed_date_unix_epoch_time, pubmed_date_human_readable, binary_a_term, binary_b_term, paragraph_distance, sentence_distance, word_distance, flag_if_valid (i.e., if in ctd or another database), time_until_verified
+        return ','.join ([
+            b.pmid,
+            b.date,
+            b.date, # TODO: human readable form
+            b.L,
+            b.R,
+            b.paraDist,
+            b.sentDist,
+            b.docDist,
+            b.fact,
+            b.date # time_until_verified
+        ])
+        
     @staticmethod
     def evaluate (conf):
         logger = LoggingUtil.init_logging (__file__)
         logger.info ("Evaluating Chemotext2 output: {0}".format (conf.input_dir))
         sc = SparkUtil.get_spark_context (conf.spark_conf)
-        logger.info ("Loading facts")
         facts = Facts.get_facts (sc, conf.ctd_conf)
-        logger.info ("Listing input files")
+        logger.info ("Loaded {0} facts".format (facts.count ()))
         articles = SUtil.get_article_paths (conf.input_dir)
+        logger.info ("Listed {0} input files".format (len(articles)))
         for slice_n in range (0, conf.slices):
             output_dir = os.path.join (conf.output_dir, "eval", "annotated", str(slice_n))
             if os.path.exists (output_dir):
@@ -301,172 +328,46 @@ class Evaluate(object):
                 logger.info ("Generating annotated output for " + output_dir)
                 os.makedirs (output_dir)
 
-                train = annotated.filter (lambda b : Evaluate.is_training (b)).\
+                train = annotated.filter (lambda b : b is not None and Evaluate.is_training (b)).\
                         map(lambda b : json.dumps (b, cls=BinaryEncoder))
                 train_out_dir = os.path.join (output_dir, 'train')
                 train.saveAsTextFile ("file://" + train_out_dir)
                 print ("   --> train: {0}".format (train_out_dir))
                 
-                test  = annotated.filter (lambda b : not Evaluate.is_training (b)).\
+                test  = annotated.filter (lambda b : b is not None and not Evaluate.is_training (b)).\
                         map(lambda b : json.dumps (b, cls=BinaryEncoder))
                 test_out_dir = os.path.join (output_dir, 'test')
                 test.saveAsTextFile ("file://" + test_out_dir)
                 print ("   --> test: {0}".format (test_out_dir))
-    '''
-    @staticmethod
-    def false_mention_histogram (binaries, output_dir):
-        import numpy
-        import matplotlib.pyplot as plt
-        import seaborn as sns
-        binaries = sorted (binaries, key=lambda b : b.date)
-        dates = map (lambda b : b.date, binaries)
-        dates = [ d for d in dates if d is not None ]
-        diffs = [abs(v - dates[(i+1)%len(dates)]) for i, v in enumerate(dates)]
 
-        if len(diffs) > 700: # Avoid writing a graph for every false thing.
-            key = "{0}@{1}".format (binaries[0].L, binaries[0].R)
-            outfile = "{0}/false_{1}_{2}.png".format (output_dir, key, len(diffs))
-            try:
-                if len(diffs) > 0:
-                    diffs.insert (0, diffs.pop ())
-                plt.clf ()
-                g = sns.distplot(diffs,
-                                 bins=10,
-                                 rug=True,
-                                 axlabel="Mention Frequency : {0}".format (key));
-                g.axes.set_title('Mention Frequency Distribution', fontsize=14)
-                g.set_xlabel("Time",size = 14)
-                g.set_ylabel("Probability",size = 14)
-                plt.savefig (outfile)
-            except:
-                traceback.print_exc ()
-
-        return []
-
-    @staticmethod
-    def true_mention_histogram (binaries, output_dir):
-        import numpy
-        import matplotlib.pyplot as plt
-        import seaborn as sns
-
-        result = []
-        fact_date = None
-        is_fact = False
-
-        if len(binaries) == 0:
-            return result
-
-        key = "{0}@{1}".format (binaries[0].L, binaries[0].R).\
-              replace ("\n", "_").\
-              replace (" ", "_")
-
-        mentions = []
-        for b in binaries:
-            if b.date is None:
-                continue
-            mentions.append (b.date)
-            if b.fact:
-                is_fact = True
-                fact_date = b.date
-                break
-
-        special_interest = is_special_interest (binaries[0])
-
-        if is_fact and fact_date is None and len(mentions) > 0:
-            fact_date = mentions [ len(mentions) - 1]
-            print ("   >>>> Set ctd date to {0}".format (fact_date))
-
-        if fact_date is None:
-            result = []
-            print ("    --- ctd date is NONE")
-        elif len(mentions) < 300 and not special_interest:
-            print ("    --- mentions < 300")
-            result = mentions
-        elif len(mentions) > 1:
-            print ("    --- plotting mentions")
-            result = mentions
-
-            try:
-                with open ("{0}/log.txt".format (output_dir), "a") as stream:
-                    stream.write ("{0} {1}\n".format (key, mentions))
-
-                outfile = "{0}/before_t_{1}_{2}.png".format (output_dir, key, len(result))
-                if special_interest:
-                    outfile = "{0}/spec_before_t_{1}_{2}.png".format (output_dir, key, len(result))
-                print "generating {0}".format (outfile)
-
-                start = result [0]
-                
-                bins=range (start, fact_date, quarter)
-                plt.clf ()
-                g = sns.distplot (result, bins=bins, rug=True)
-                g.axes.set_title("Mention Distribution: {0}".format (key), fontsize=14)
-                g.set_xlabel("Time", size = 14)
-                g.set_ylabel("Probability", size = 14)
-                plt.savefig (outfile)
-            except:
-                traceback.print_exc ()
-        return result
-
-    def plot_mentions (binaries, output_dir, prefix):
-        import numpy
-        import matplotlib.pyplot as plt
-        import seaborn as sns
-
-        if len(binaries) == 0:
-            return []
-
-        key = "{0}@{1}".format (binaries[0].L, binaries[0].R).\
-              replace ("\n", "_").\
-              replace (" ", "_")
-        special_interest = is_special_interest (binaries[0])
-        mentions = map (lambda b : b.date, binaries)
-
-        if len(mentions) < 300 and not special_interest:
-            print ("    --- mentions < 300")
-        elif len(mentions) > 1:
-            try:
-                with open ("{0}/log.txt".format (output_dir), "a") as stream:
-                    stream.write ("{0} {1}\n".format (key, mentions))
-
-                file_pat = "{0}/spec_{1}_{2}_{3}.png" if special_interest else "{0}/{1}_{2}_{3}.png"
-                outfile = file_pat.format (output_dir, prefix, key, len(result))
-                print ("generating {0}".format (outfile))
-
-                fact_date = mentions [ len(mentions) - 1 ]
-                start = mentions [0]                
-                bins=range (start, fact_date, quarter)
-
-                plt.clf ()
-                g = sns.distplot (mentions, bins=bins, rug=True)
-                g.axes.set_title("Mention Distribution: {0}".format (key), fontsize=14)
-                g.set_xlabel("Time", size = 14)
-                g.set_ylabel("Probability", size = 14)
-                plt.savefig (outfile)
-            except:
-                traceback.print_exc ()
-        return mentions
-    '''
+                ''' Save CSV '''
+                annotated. \
+                    map (lambda b : Evaluate.to_csv_row (b)). \
+                    saveAsTextFile ("file://{0}".format (os.path.join (output_dir, "csv", slice_n)))
 
     @staticmethod
     def plot_before (before, conf):
+        from chemotext_util import LoggingUtil
+        logger = LoggingUtil.init_logging (__file__)
+
         if before.count () <= 0:
             return
         before = before.reduceByKey (lambda x, y : x + y) 
         
-        true_plots = os.path.join (conf.output_dir, "chart")
+        true_plots_dir = os.path.join (conf.output_dir, "chart")
         true_mentions = before. \
-                        mapValues (lambda x : Plot.plot_mentions (x, true_plots, "T")). \
+                        mapValues (lambda x : Plot.plot_mentions (x, true_plots_dir, "T")). \
                         filter (lambda x : len(x[1]) > 0)
         logger.info ("true mentions: {0}".format (true_mentions.count ()))
 
-        false_plots = os.path.join (conf.output_dir, "chart", "false")
+        false_plots_dir = os.path.join (conf.output_dir, "chart", "false")
         false_mentions = before.subtractByKey (true_mentions)
         false_frequency = false_mentions. \
-                          mapValues   (lambda x : Plot.false_mention_histogram (x, false_plots))
+                          mapValues   (lambda x : Plot.false_mention_histogram (x, false_plots_dir))
 
-        false_mentions = false_mentions.\
-                         mapValues   (lambda x : Evaluate.plot_mentions (x, false_plots, "F"))            
+        false_mentions = false_mentions. \
+                         mapValues   (lambda x : Evaluate.plot_mentions (x, false_plots_dir, "F"))
+
         logger.info ("false mentions: {0}".format (false_mentions.count ()))
 
     @staticmethod
@@ -487,10 +388,8 @@ class Evaluate(object):
     @staticmethod
     def plot (conf):
         sc = SparkUtil.get_spark_context (conf.spark_conf)
-        sqlContext = SQLContext(sc)
         conf.output_dir = conf.output_dir.replace ("file:", "")
         conf.output_dir = "file://{0}".format (conf.output_dir)
-        sns.set(style="white")
         sample = conf.sample
         min_year = 1990
         max_year = datetime.datetime.now().year
@@ -502,7 +401,7 @@ class Evaluate(object):
         for slice_n in range (0, conf.slices):
 
             ''' Read slices '''
-            print "reading slice {0}".format (slice_n)
+            logger.info ("reading slice {0}".format (slice_n))
             files = ",".join ([
                 os.path.join (conf.output_dir, "annotated", str(slice_n), "train"),
                 os.path.join (conf.output_dir, "annotated", str(slice_n), "test")
@@ -511,16 +410,20 @@ class Evaluate(object):
                         map    (lambda t : BinaryDecoder().decode (t)). \
                         filter (lambda x : not isinstance (x, Fact))
 
+            ''' csv output '''
+            csv_output = annotated. \
+                        map         (lambda b : ( simplekey(b), [ b ] ))
+                        
             ''' Sum distances grouped by fact attribute (T/F) '''
             slice_distances = annotated.map (lambda x : ( x.fact, x.docDist, x.paraDist, x.sentDist) )
             distances = distances.union (slice_distances)
-            print ("   Distances count({0}): {1}".format (slice_n, distances.count ()))
+            logger.info ("   Distances count({0}): {1}".format (slice_n, distances.count ()))
 
             before = before.union (annotated. \
                                    map         (lambda b : ( simplekey(b), [ b ] )). \
                                    reduceByKey (lambda x,y : x + y))
-            print ("   Before count({0}): {1}".format (slice_n, distances.count ()))
-#            break
+            logger.info ("   Before count({0}): {1}".format (slice_n, distances.count ()))
+            break
 
         Evaluate.plot_distances (distances)
         Evaluate.plot_before (before, conf)
