@@ -265,33 +265,30 @@ tp53_targets = map (lambda x : x.lower (), [
 def is_special_interest (b):
     return b is not None and ( b.L in tp53_targets or b.R in tp53_targets )
 
+def is_training (b):
+    result = False
+    try:
+        result = int(b.pmid) % 2 == 0
+    except ValueError:
+        print ("(--) pmid: {0}".format (b.pmid))
+    return result
+
+def to_csv_row (b):
+    return ','.join ([
+        b.pmid,
+        str(b.date),
+        datetime.datetime.fromtimestamp (b.date).strftime ("%d-%m-%Y") if b.date else "",
+        '"{0}"'.format (b.L),
+        '"{0}"'.format (b.R),
+        str(b.paraDist),
+        str(b.sentDist),
+        str(b.docDist),
+        str(b.fact).lower (),
+        str(b.date) # time_until_verified
+    ])
+
 class Evaluate(object):
 
-    @staticmethod
-    def is_training (b):
-        result = False
-        try:
-            result = int(b.pmid) % 2 == 0
-        except ValueError:
-            print ("(--) pmid: {0}".format (b.pmid))
-        return result
-
-    @staticmethod
-    def to_csv_row (b):
-        # pubmed id, pubmed_date_unix_epoch_time, pubmed_date_human_readable, binary_a_term, binary_b_term, paragraph_distance, sentence_distance, word_distance, flag_if_valid (i.e., if in ctd or another database), time_until_verified
-        return ','.join ([
-            b.pmid,
-            b.date,
-            b.date, # TODO: human readable form
-            b.L,
-            b.R,
-            b.paraDist,
-            b.sentDist,
-            b.docDist,
-            b.fact,
-            b.date # time_until_verified
-        ])
-        
     @staticmethod
     def evaluate (conf):
         logger = LoggingUtil.init_logging (__file__)
@@ -328,22 +325,47 @@ class Evaluate(object):
                 logger.info ("Generating annotated output for " + output_dir)
                 os.makedirs (output_dir)
 
-                train = annotated.filter (lambda b : b is not None and Evaluate.is_training (b)).\
-                        map(lambda b : json.dumps (b, cls=BinaryEncoder))
+
+                train = annotated. \
+                        filter (lambda b : b is not None and is_training (b))
+                train.count ()
+
+                train = train.map (lambda b : json.dumps (b, cls=BinaryEncoder))
+                train.count ()
                 train_out_dir = os.path.join (output_dir, 'train')
                 train.saveAsTextFile ("file://" + train_out_dir)
                 print ("   --> train: {0}".format (train_out_dir))
                 
-                test  = annotated.filter (lambda b : b is not None and not Evaluate.is_training (b)).\
-                        map(lambda b : json.dumps (b, cls=BinaryEncoder))
+                test  = annotated. \
+                        filter (lambda b : b is not None and not is_training (b)).\
+                        map (lambda b : json.dumps (b, cls=BinaryEncoder))
                 test_out_dir = os.path.join (output_dir, 'test')
                 test.saveAsTextFile ("file://" + test_out_dir)
                 print ("   --> test: {0}".format (test_out_dir))
 
                 ''' Save CSV '''
+                csv_output = "file://{0}".format (os.path.join (output_dir, "csv"))                
                 annotated. \
-                    map (lambda b : Evaluate.to_csv_row (b)). \
-                    saveAsTextFile ("file://{0}".format (os.path.join (output_dir, "csv", slice_n)))
+                    map (to_csv_row). \
+                    saveAsTextFile (csv_output)
+                print ("   --> csv: {0}".format (csv_output))
+
+        ''' Concatenate all csvs into one big one '''
+        csv_dirs = os.path.join (conf.output_dir, "eval", "annotated")
+        print ("scanning {0}".format (csv_dirs))
+        csv_files = []
+        for root, dirnames, filenames in os.walk (csv_dirs):
+            for filename in fnmatch.filter(filenames, '*part-*'):
+                if not "crc" in filename and "csv" in root:
+                    file_name = os.path.join(root, filename)
+                    csv_files.append (file_name)
+        big_csv = os.path.join (conf.output_dir, "eval", "eval.csv")
+        
+        with open (big_csv, "w") as stream:
+            stream.write ("pubmed_id,pubmed_date_unix_epoch_time,pubmed_date_human_readable,binary_a_term,binary_b_term,paragraph_distance,sentence_distance,word_distance,flag_if_valid,time_until_verified\n")
+            for f in csv_files:
+                with open (f, "r") as in_csv:
+                    stream.write (in_csv.read ())
 
     @staticmethod
     def plot_before (before, conf):
