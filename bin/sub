@@ -277,7 +277,7 @@ execute_eval () {
     e$env
     mkdir -p $DATA_HOME/eval
     mkdir -p $DATA_HOME/eval/chart/false
-    rm $DATA_HOME/eval/chart/log.txt
+    rm -rf $DATA_HOME/eval/chart/log.txt
     spark \
 	--py-files python/equiv_set.py,python/chemotext_util.py,python/plot.py  \
         $APP_HOME/python/evaluate.py \
@@ -298,16 +298,11 @@ execute_eval () {
 execute_plot () {
     execute_eval --plot
 }
+execute_model () {
+    execute_eval --logreg # logistical regression
+}
 execute_w2v () {
-    spark \
-        --py-files python/chemotext_util.py \
-        $APP_HOME/python/word2vec.py \
-        --master $MESOS_MASTER \
-        --name   "Chemotext2:WordEmbedding" \
-        --venv   $VENV \
-        --home   $APP_HOME \
-        --input  $PUBMEDC \
-        --mesh   $MESHXML
+    execute_eval --w2v --name "WordEmbedding"
 }
 
 main $*

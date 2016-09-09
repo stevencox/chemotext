@@ -14,6 +14,8 @@ try:
     from pyspark.sql import SQLContext
     from pyspark.sql import DataFrame
     from pyspark.sql.types import *
+    from pyspark.mllib.feature import Word2Vec
+    from pyspark.mllib.feature import Word2VecModel
 except:
     pass
 from json import JSONEncoder
@@ -264,7 +266,6 @@ class SerializationUtil(object):
         return SerializationUtil.read_json_file (pmids)
     @staticmethod
     def get_article (article_path):
-#        traceback.print_stack ()
         logger.info ("Article: @-- {0}".format (article_path))
         result = None
         try:
@@ -283,7 +284,6 @@ class SerializationUtil(object):
 
     @staticmethod
     def get_article_paths (input_dir):
-#       return glob.glob (os.path.join (input_dir, "Mol_Cancer_2008_May_12_7_37*fxml.json"))
         return glob.glob (os.path.join (input_dir, "*fxml.json"))
 
     @staticmethod
@@ -291,9 +291,9 @@ class SerializationUtil(object):
         result = None
         try:
             result = datetime.datetime.strptime (date, "%d-%m-%Y")
+            logger.debug ("Parsed date: {0}, ts: {1}".format (result, calendar.timegm(result.timetuple()) ))
         except ValueError:
             print "ERROR-> {0}".format (date)
-        logger.debug ("Parsed date: {0}, ts: {1}".format (result, calendar.timegm(result.timetuple())))
         return result
     @staticmethod
     def parse_month_year_date (month, year):
@@ -730,3 +730,92 @@ class DataLake(object):
             for k in kin2prot.collect ():
                 print k
         return kin2prot
+
+class WordEmbed(object):
+
+    @staticmethod
+    def get_month_key (article):
+        date = None
+        try:
+            date = SerializationUtil.parse_date (article.date)
+            #date = datetime.datetime.strftime (date_obj, "%m-%Y")
+        except:
+            traceback.print_exc ()
+        return (date.year, date.month) if date else None
+
+    def get_key (self, year, month):
+        return "{0}-{1}".format (year, month)
+
+    def get_model_path (self, key_text):
+        return "{0}/w2v-{1}".format (self.model_path, key_text)
+
+    def load_model (self, key_text):
+        model_path = self.get_model_path (key_text)
+        model = None
+        if os.path.exists (model_path):
+            logger.info ("Load existing word2vec model: {0}".format (model_path))
+            model = Word2VecModel.load (self.sc, model_path)
+        return model
+        
+    def __init__(self, sc, model_path, articles):
+        self.model_path = model_path
+        self.sc = sc
+        logger.info ("Compute word2vec word embedding model...")
+        text = articles. \
+               map (lambda a : ( WordEmbed.get_month_key (a),
+                                 filter (lambda x : len(x) > 2,
+                                         [ map (lambda s : s.replace(".", " ").split (" "), p.sentences)
+                                        for p in a.paragraphs 
+                                       ])
+                             )). \
+               filter (lambda x: x[0] != None). \
+               reduceByKey (lambda x, y : x + y). \
+               sortByKey ()
+        
+        model = None
+        min_corpus_size = 1000
+        keys = text.keys ().collect ()
+        for key in keys:
+            key_text = self.get_key (key[0], key[1])
+            model_file = self.get_model_path (key_text)
+            if os.path.exists (model_file.replace ("file:", "")):
+                print ("Skipping existing model: {0}".format (model_file))
+                continue
+
+            included = []
+            for key_until in keys:
+                included.append (key_until)
+                if key_until == key:
+                    break
+
+            months_text = text.filter (lambda v : any ( map (lambda i : v[0][0] == i[0] and v[0][1] == i[1], included) ) ). \
+                          flatMap (lambda x : x[1]). \
+                          flatMap (lambda x : x)
+
+            size = months_text.count ()
+            print ("w2v(range=[{0}..{1}], words={2})".format (included[0],
+                                                              included[ len(included) - 1 ],
+                                                              count)
+            if count < min_corpus_size:
+                continue
+            try:
+                start = time.time ()
+                model = Word2Vec ().            \
+                        setNumPartitions (100). \
+                        setMinCount (3). \
+                        fit (months_text)
+                if model:
+                    model.save (sc, model_file)
+                elapsed = time.time () - start
+                print ("W2V model {0} :=> {1} seconds.".format (key_text, elapsed))
+            except:
+                print ("Catching exception during model trainging...and continuing.")
+                traceback.print_exc ()
+    def find_syn (self, word, month, year, radius=10):
+        results = []
+        try:
+            if not " " in word:
+                results = self.model.findSynonyms (word, radius)
+        except:
+            pass
+        return results

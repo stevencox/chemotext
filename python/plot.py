@@ -18,6 +18,98 @@ quarter = int(days_per_year / 8) * 24 * 60 * 60
 
 sns.set (style="white")
 
+tp53_targets = map (lambda x : x.lower (), [
+    "AKAP10",
+    "AKAP11",
+    "AKAP12",
+    "AKAP2",
+    "AKAP6",
+    "CASK",
+    "CCNH",
+    "CDC42BPA",
+    "CDC42BPG",
+    "CDK1",
+    "CHUK",
+    "CKB",
+    "CKS1B",
+    "CKS2",
+    "CLK1",
+    "CLK2",
+    "FES",
+    "FGFR1",
+    "FGFR2",
+    "FGFR3",
+    "ILKAP",
+    "INSR",
+    "IRAK1",
+    "IRAK2",
+    "IRAK3",
+    "STK16",
+    "STK24",
+    "STK25",
+    "STK26",
+    "STK36",
+    "STK38",
+    "SYK",
+    "TAB1",
+    "TAB2",
+    "TAB3",
+    "TAOK1",
+    "TBK1",
+    "TEK",
+    "TJP2",
+    "WASF1",
+    "WEE1",
+    "WNK2",
+    "ZAP70",
+    "ATM",
+    "ATR",
+    "BMX",
+    "CDK2",
+    "CDKN1A",
+    "CDKN2A",
+    "CDKN2C",
+    "CHEK1",
+    "CHEK2",
+    "CLK3",
+    "CSNK1D",
+    "CSNK1E",
+    "CSNK2A1",
+    "CSNK2A2",
+    "CSNK2B",
+    "GSK3B",
+    "HIPK1",
+    "HIPK2",
+    "HIPK3",
+    "ICK",
+    "IKBKB",
+    "LRRK2",
+    "MAPK1",
+    "MAPK11",
+    "MAPK14",
+    "MAPK8",
+    "MAPKAPK5",
+    "MPP5",
+    "MTOR",
+    "NUAK1",
+    "PBK",
+    "PLK1",
+    "PRKAB2",
+    "PRKCD",
+    "PTK2",
+    "RB1CC1",
+    "SKP1",
+    "SRPK1",
+    "STK11",
+    "STK4",
+    "TK1",
+    "TP53",
+    "VRK1"
+])
+
+def is_special_interest (b):
+    return b is not None and ( b.L in tp53_targets or b.R in tp53_targets )
+        
 class Plot(object):
 
     @staticmethod
@@ -43,7 +135,7 @@ class Plot(object):
         dates = [ d for d in dates if d is not None ]
         diffs = [abs(v - dates[(i+1)%len(dates)]) for i, v in enumerate(dates)]
 
-        if len(diffs) > 500:
+        if len(diffs) > 1000:
             key = "{0}@{1}".format (binaries[0].L, binaries[0].R)
             outfile = "{0}/false_{1}_{2}.png".format (output_dir, key, len(diffs))
             try:
@@ -64,12 +156,25 @@ class Plot(object):
         return []
     
     @staticmethod
+    def plot_true_mentions (binaries, output_dir):
+        is_true = any ([ b and b.fact for b in binaries ])
+        is_worth_it = len(binaries) > 500 or is_special_interest (binaries[0])
+        return Plot.plot_mentions (binaries, output_dir, "T") if is_true and is_worth_it else []
+ 
+    @staticmethod
+    def plot_false_mentions (binaries, output_dir):
+        size = len(binaries)
+        is_worth_it = size > 1000 or ( is_special_interest(binaries [0]) and len(binaries) > 200) 
+        return Plot.plot_mentions (binaries, output_dir, "F") if is_worth_it else []
+ 
+    @staticmethod
     def plot_mentions (binaries, output_dir, prefix):
         import numpy
         import matplotlib.pyplot as plt
         import seaborn as sns
 
         if len(binaries) == 0:
+            print ("plot_mentions: len(binaries)==0, returning.\n")
             return []
 
         key = "{0}@{1}".format (binaries[0].L, binaries[0].R).\
@@ -77,18 +182,20 @@ class Plot(object):
               replace (" ", "_")
         special_interest = is_special_interest (binaries[0])
         mentions = map (lambda b : b.date, binaries)
+        mentions = sorted (filter (lambda d : d is not None, mentions))
 
-        if len(mentions) < 300 and not special_interest:
-            print ("    --- mentions < 300")
+        if len(mentions) < 100 and not special_interest:
+            pass #print ("plot_mentions: len(binaries)<300, returning.\n")
         elif len(mentions) > 1:
             try:
                 with open ("{0}/log.txt".format (output_dir), "a") as stream:
                     stream.write ("{0} {1}\n".format (key, mentions))
                 file_pat = "{0}/spec_{1}_{2}_{3}.png" if special_interest else "{0}/{1}_{2}_{3}.png"
-                outfile = file_pat.format (output_dir, prefix, key, len(result))
-                print ("generating {0}".format (outfile))
+                outfile = file_pat.format (output_dir, prefix, key, len(mentions))
+                print ("plot_mentions: generating {0}\n".format (outfile))
                 Plot.plot_dates (key, mentions, outfile)
             except:
+                print ("plot_mentions: ERROR: len(binaries): {0}.\n".format (len(binaries)))
                 traceback.print_exc ()
         return mentions
 

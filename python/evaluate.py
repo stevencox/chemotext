@@ -15,6 +15,7 @@ import socket
 import time
 import traceback
 from chemotext_util import Article
+from chemotext_util import Binary
 from chemotext_util import BinaryEncoder
 from chemotext_util import BinaryDecoder
 from chemotext_util import Fact
@@ -25,11 +26,14 @@ from chemotext_util import EvaluateConf
 from chemotext_util import LoggingUtil
 from chemotext_util import SerializationUtil as SUtil
 from chemotext_util import SparkUtil
+from chemotext_util import WordEmbed
 from equiv_set import EquivalentSet
 from itertools import chain
 from operator import add
 from plot import Plot
 from pyspark.sql import SQLContext
+from pyspark.mllib.classification import LogisticRegressionWithLBFGS, LogisticRegressionModel
+from pyspark.mllib.regression import LabeledPoint                                                
 
 logger = LoggingUtil.init_logging (__file__)
 
@@ -154,6 +158,7 @@ class Guesses(object):
         relevant_facts = facts.filter (lambda f : f[1].pmid in pmids.value).cache ()
         
         # Things we found in articles that are facts
+        # Yields:  ( key -> ( Binary, Fact ) )
         true_positive = guesses.                                                  \
                         join (relevant_facts).                                    \
                         map (lambda b : ( b[0], Guesses.mark_binary (b[1][0], is_fact=True) ))
@@ -365,32 +370,54 @@ class Evaluate(object):
             stream.write ("pubmed_id,pubmed_date_unix_epoch_time,pubmed_date_human_readable,binary_a_term,binary_b_term,paragraph_distance,sentence_distance,word_distance,flag_if_valid,time_until_verified\n")
             for f in csv_files:
                 with open (f, "r") as in_csv:
-                    stream.write (in_csv.read ())
+                    for line in in_csv:
+                        stream.write(line)
 
     @staticmethod
-    def plot_before (before, conf):
+    def word2vec (conf):
+        logger = LoggingUtil.init_logging (__file__)
+        logger.info ("Creating Chemotext2 word embeddings from input: {0}".format (conf.input_dir))
+        sc = SparkUtil.get_spark_context (conf.spark_conf)
+        article_paths = SUtil.get_article_paths (conf.input_dir) #[:200]
+        articles = sc.parallelize (article_paths, conf.spark_conf.parts). \
+                   map (lambda p : SUtil.get_article (p))
+        logger.info ("Listed {0} input files".format (articles.count ()))
+        
+        conf.output_dir = conf.output_dir.replace ("file:", "")
+        conf.output_dir = "file://{0}/w2v".format (conf.output_dir)
+        return WordEmbed (sc, conf.output_dir, articles)
+
+    @staticmethod
+    def plot_before (before, output_dir):
         from chemotext_util import LoggingUtil
         logger = LoggingUtil.init_logging (__file__)
 
         if before.count () <= 0:
             return
-        before = before.reduceByKey (lambda x, y : x + y) 
-        
-        true_plots_dir = os.path.join (conf.output_dir, "chart")
+        '''
+        before = before.reduceByKey (lambda x, y : x + y). \
+                 mapValues (lambda x : filter (lambda v : v is not None, x))
+        '''
+        true_plots_dir = os.path.join (output_dir, "chart")
+        print ("-------------> before 0")
         true_mentions = before. \
-                        mapValues (lambda x : Plot.plot_mentions (x, true_plots_dir, "T")). \
+                        mapValues (lambda x : Plot.plot_true_mentions (x, true_plots_dir)). \
                         filter (lambda x : len(x[1]) > 0)
-        logger.info ("true mentions: {0}".format (true_mentions.count ()))
+        logger.info ("Plotted {0} sets of true mentions.".format (true_mentions.count ()))
+        print ("-------------> before 1")
 
-        false_plots_dir = os.path.join (conf.output_dir, "chart", "false")
+        false_plots_dir = os.path.join (output_dir, "chart", "false")
         false_mentions = before.subtractByKey (true_mentions)
         false_frequency = false_mentions. \
                           mapValues   (lambda x : Plot.false_mention_histogram (x, false_plots_dir))
 
         false_mentions = false_mentions. \
-                         mapValues   (lambda x : Evaluate.plot_mentions (x, false_plots_dir, "F"))
+                         mapValues   (lambda x : Plot.plot_false_mentions (x, false_plots_dir))
 
         logger.info ("false mentions: {0}".format (false_mentions.count ()))
+        true_mentions = None
+        false_mentions = None
+        false_frequency = None
 
     @staticmethod
     def plot_distances (distances):
@@ -410,33 +437,29 @@ class Evaluate(object):
     @staticmethod
     def plot (conf):
         sc = SparkUtil.get_spark_context (conf.spark_conf)
+        sqlContext = SQLContext(sc) # object unused but defines toDF()
+        print ("Original: Output dir: {0}".format (conf.output_dir))
         conf.output_dir = conf.output_dir.replace ("file:", "")
-        conf.output_dir = "file://{0}".format (conf.output_dir)
-        sample = conf.sample
-        min_year = 1990
-        max_year = datetime.datetime.now().year
-        years = np.arange (min_year, max_year)
-        df = None
-        before = sc.parallelize ([], numSlices=conf.spark_conf.parts)
+        conf.output_dir = "file://{0}/eval".format (conf.output_dir)
+
+        print ("Output dir: {0}".format (conf.output_dir))
+
+        '''
+        before = sc.parallelize ([], numSlices = conf.spark_conf.parts)
         distances = sc.parallelize ([])
 
         for slice_n in range (0, conf.slices):
 
-            ''' Read slices '''
             logger.info ("reading slice {0}".format (slice_n))
             files = ",".join ([
                 os.path.join (conf.output_dir, "annotated", str(slice_n), "train"),
                 os.path.join (conf.output_dir, "annotated", str(slice_n), "test")
             ])
+
             annotated = sc.textFile (files, minPartitions=conf.spark_conf.parts). \
                         map    (lambda t : BinaryDecoder().decode (t)). \
                         filter (lambda x : not isinstance (x, Fact))
 
-            ''' csv output '''
-            csv_output = annotated. \
-                        map         (lambda b : ( simplekey(b), [ b ] ))
-                        
-            ''' Sum distances grouped by fact attribute (T/F) '''
             slice_distances = annotated.map (lambda x : ( x.fact, x.docDist, x.paraDist, x.sentDist) )
             distances = distances.union (slice_distances)
             logger.info ("   Distances count({0}): {1}".format (slice_n, distances.count ()))
@@ -444,17 +467,126 @@ class Evaluate(object):
             before = before.union (annotated. \
                                    map         (lambda b : ( simplekey(b), [ b ] )). \
                                    reduceByKey (lambda x,y : x + y))
-            logger.info ("   Before count({0}): {1}".format (slice_n, distances.count ()))
-            break
+            logger.info ("   Before count({0}): {1}".format (slice_n, before.count ()))
+#            break
+        '''
+        annotated = Evaluate.load_all (sc, conf) #.sample (False, 0.02)
+        before = annotated. \
+                 map         (lambda b : ( simplekey(b), [ b ] ) ). \
+                 reduceByKey (lambda x,y : x + y). \
+                 mapValues   (lambda x : filter (lambda v : v is not None, x))
 
+        print ("Got {0} before values".format (before.count ()))
+
+        plot_path = conf.output_dir.replace ("file://", "")
+        print ("Generating plots to plot path: {0}".format (plot_path))
+        Evaluate.plot_before (before, plot_path)
+        before = None
+
+        distances = annotated.map (lambda x : ( x.fact, x.docDist, x.paraDist, x.sentDist) )
         Evaluate.plot_distances (distances)
-        Evaluate.plot_before (before, conf)
 
     @staticmethod
     def flatten_dist(truth, dist):
         yield (truth, "doc",  dist[0])
         yield (truth, "sent", dist[1])
         yield (truth, "para", dist[2])
+
+    #pubmed_id,pubmed_date_unix_epoch_time,pubmed_date_human_readable,binary_a_term,binary_b_term,paragraph_distance,sentence_distance,word_distance,flag_if_valid,time_until_verified
+    @staticmethod
+    def load_binary (r):
+        date = None
+        date_str = r.C1
+        if not date_str == "None":
+            date = int (date_str)
+        return Binary (
+            id = 0,
+            L = r.C3, # a
+            R = r.C4, # b
+            paraDist = int (r.C5), # para
+            sentDist = int (r.C6), # sent
+            docDist  = int (r.C7), # doc
+            code = 0,
+            fact = r.C8 == "true",
+            refs = [ ],
+            pmid = r.C0, # pubmed_id,
+            leftDocPos=None, rightDocPos=None, dist=None,
+            date = date)
+            
+    @staticmethod
+    def load_all (sc, conf):
+        input_file = os.path.join (conf.output_dir, "eval.csv")
+        start = time.time ()
+        sqlContext = SQLContext (sc)
+        rdd = sqlContext.read.                                  \
+            format('com.databricks.spark.csv').                     \
+            options(comment='#').                                   \
+            options(delimiter=",").                                 \
+            load(input_file).rdd.                                   \
+            map (lambda r : Evaluate.load_binary (r))
+        count = rdd.count ()
+        elapsed = time.time () - start
+        print ("Loaded {0} rows in {1} seconds".format (count, elapsed))
+        return rdd
+
+    @staticmethod
+    def train_model (conf):
+        sc = SparkUtil.get_spark_context (conf.spark_conf)
+        conf.output_dir = conf.output_dir.replace ("file:", "")
+        conf.output_dir = "file://{0}".format (conf.output_dir)
+#        input_file = os.path.join (conf.output_dir, "eval", "eval.csv")
+
+        labeled = Evaluate.load_all (sc, conf).\
+                  map (lambda b : LabeledPoint (
+                      1.0 if b.fact else 0.0,
+                      [ b.paraDist, b.sentDist, b.docDist
+                    ]))
+        '''
+        start = time.time ()
+        sqlContext = SQLContext (sc)
+        labeled = sqlContext.read.                                  \
+            format('com.databricks.spark.csv').                     \
+            options(comment='#').                                   \
+            options(delimiter=",").                                 \
+            load(input_file).rdd.                                   \
+            map (lambda r : LabeledPoint (
+                1.0 if r["C{0}".format (8)] == "true" else 0.0,
+                [
+                    int (r["C{0}".format (5) ]), # para
+                    int (r["C{0}".format (6) ]), # sent
+                    int (r["C{0}".format (7) ]), # doc
+                ]))
+        count = labeled.count ()
+        elapsed = time.time () - start
+        print ("Loaded {0} rows in {1} seconds".format (count, elapsed))
+        '''
+
+        train, test = labeled.randomSplit (weights=[ 0.6, 0.4 ], seed=12345)
+
+        count = train.count ()
+        start = time.time ()
+        model = LogisticRegressionWithLBFGS.train (train)
+        elapsed = time.time () - start
+        print ("Trained model on training set of size {0} in {1} seconds".format (count, elapsed))
+
+        start = time.time ()
+        model_path = os.path.join (conf.output_dir, "eval", "model")
+        file_path = model_path.replace ("file://", "")
+        if os.path.isdir (file_path):
+            print ("Removing existing model {0}".format (file_path))
+            shutil.rmtree (file_path)
+        model.save(sc, model_path)
+        sameModel = LogisticRegressionModel.load(sc, model_path)
+        elapsed = time.time () - start
+        print ("Saved and restored model to {0} in {1} seconds".format (model_path, elapsed))
+
+        labelsAndPreds = train.map (lambda p: (p.label, sameModel.predict (p.features)))
+        trainErr = labelsAndPreds.filter(lambda (v, p): v != p).count () / float (train.count())
+        print("Training Error => {0}".format (trainErr))
+
+        labelsAndPreds = test.map (lambda p: (p.label, sameModel.predict (p.features)))
+        testErr = labelsAndPreds.filter (lambda (v, p): v != p).count () / float (test.count ())
+        print ("Testing Error => {0}".format (testErr))
         
 def main ():
     parser = argparse.ArgumentParser()
@@ -471,6 +603,8 @@ def main ():
     parser.add_argument("--ctdAC",  help="Path to CTD AC data")
     parser.add_argument("--geneGene",  help="Gene interaction data")
     parser.add_argument("--plot",   help="Plot data", action='store_true')
+    parser.add_argument("--logreg", help="Model prediction function (logistical regression)", action='store_true')
+    parser.add_argument("--w2v",    help="Word2Vec model (create)", action='store_true')
     args = parser.parse_args()
     conf = EvaluateConf (
         spark_conf = SparkConf (host           = args.host,
@@ -489,6 +623,10 @@ def main ():
 
     if args.plot:
         Evaluate.plot (conf)
+    elif args.logreg:
+        Evaluate.train_model (conf)
+    elif args.w2v:
+        Evaluate.word2vec (conf)
     else:
         Evaluate.evaluate (conf)
 
@@ -496,3 +634,13 @@ if __name__ == "__main__":
     main()
 
 
+'''
+
+>>> import numpy as np
+>>> x = [ 0, 1, 2, 3, 4, 5, 5, 5, 5, 5, 6, 9, 12, 30, 100 ]
+>>> nx = np.array (x)
+>>> np.gradient (nx)
+array([  1. ,   1. ,   1. ,   1. ,   1. ,   0.5,   0. ,   0. ,   0. ,
+         0.5,   2. ,   3. ,  10.5,  44. ,  70. ])
+
+'''
