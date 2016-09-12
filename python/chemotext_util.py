@@ -795,7 +795,7 @@ class WordEmbed(object):
             size = months_text.count ()
             print ("w2v(range=[{0}..{1}], words={2})".format (included[0],
                                                               included[ len(included) - 1 ],
-                                                              count)
+                                                              size))
             if count < min_corpus_size:
                 continue
             try:
