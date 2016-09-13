@@ -378,7 +378,7 @@ class Evaluate(object):
         logger = LoggingUtil.init_logging (__file__)
         logger.info ("Creating Chemotext2 word embeddings from input: {0}".format (conf.input_dir))
         sc = SparkUtil.get_spark_context (conf.spark_conf)
-        article_paths = SUtil.get_article_paths (conf.input_dir) #[:200]
+        article_paths = SUtil.get_article_paths (conf.input_dir) #[:20000]
         articles = sc.parallelize (article_paths, conf.spark_conf.parts). \
                    map (lambda p : SUtil.get_article (p))
         logger.info ("Listed {0} input files".format (articles.count ()))

@@ -776,27 +776,34 @@ class WordEmbed(object):
         min_corpus_size = 1000
         keys = text.keys ().collect ()
         for key in keys:
+            ''' Build path name '''
             key_text = self.get_key (key[0], key[1])
             model_file = self.get_model_path (key_text)
+
+            ''' If it's there, skip it. '''
             if os.path.exists (model_file.replace ("file:", "")):
                 print ("Skipping existing model: {0}".format (model_file))
                 continue
 
+            ''' Build list of included months '''
             included = []
             for key_until in keys:
                 included.append (key_until)
                 if key_until == key:
                     break
 
-            months_text = text.filter (lambda v : any ( map (lambda i : v[0][0] == i[0] and v[0][1] == i[1], included) ) ). \
+            ''' Filter RDD to aggregate words from all targeted months '''
+            months_text = text. \
+                          filter  (lambda v : any ( map (lambda i : v[0][0] == i[0] and v[0][1] == i[1], included) ) ). \
                           flatMap (lambda x : x[1]). \
                           flatMap (lambda x : x)
 
-            size = months_text.count ()
+            count = months_text.count ()
             print ("w2v(range=[{0}..{1}], words={2})".format (included[0],
                                                               included[ len(included) - 1 ],
-                                                              size))
+                                                              count))
             if count < min_corpus_size:
+                print ("   -- Skipping zero length corpus...")
                 continue
             try:
                 start = time.time ()
