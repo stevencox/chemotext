@@ -74,6 +74,7 @@ class Binary(object):
         self.leftDocPos = leftDocPos
         self.rightDocPos = rightDocPos
         self.date = date
+        self.freq_sec_deriv = None
     def __str__ (self):
         return self.__repr__()
     def __repr__ (self):

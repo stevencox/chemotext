@@ -8,6 +8,7 @@ import json
 import os
 import logging
 import math
+import numpy as np
 import re
 import shutil
 import sys
@@ -300,6 +301,46 @@ def to_csv_row (b):
         str(b.date) # time_until_verified
     ])
 
+def load_binary_row (r):
+    date = None
+    para_dist = None
+    sent_dist = None
+    doc_dist = None
+    try:
+        para_dist = int (r.C5), # para
+        sent_dist = int (r.C6), # sent
+        doc_dist  = int (r.C7), # doc
+        date_str = r.C1
+        if not date_str == "None":
+            date = int (date_str)
+    except:
+        traceback.print_exc ()
+        print r
+    return Binary (
+        id = 0,
+        L = r.C3, # a
+        R = r.C4, # b
+        paraDist = para_dist,
+        sentDist = sent_dist,
+        docDist  = doc_dist,
+        code = 0,
+        fact = r.C8 == "true",
+        refs = [ ],
+        pmid = r.C0, # pubmed_id,
+        leftDocPos=None, rightDocPos=None, dist=None,
+        date = date)
+
+def freq_derivative (binaries):
+    binaries = filter (lambda b : b is not None, binaries)
+    dates = map (lambda b : b.date, binaries)
+    for index, b in enumerate (binaries):
+        if index < 3: # too few points to try looking for patterns.
+            continue
+        d_slice = filter (lambda d : d != None, dates [:index])
+        d_freq_hist, bins = np.histogram (d_slice)
+        b.freq_sec_deriv = sum (np.gradient (np.gradient (d_freq_hist)))
+    return binaries
+
 class Evaluate(object):
 
     @staticmethod
@@ -381,6 +422,35 @@ class Evaluate(object):
                 with open (f, "r") as in_csv:
                     for line in in_csv:
                         stream.write(line)
+
+    @staticmethod
+    def augment (conf):
+        ''' For now, this is a place to extend the data in the CSV with ...
+        * Word2Vec derived cosine similarity
+        * Second derivative of the frequency of mentions
+        '''
+        sc = SparkUtil.get_spark_context (conf.spark_conf)
+        conf.output_dir = conf.output_dir.replace ("file:", "")
+        conf.output_dir = "file://{0}".format (conf.output_dir)
+
+        groups = Evaluate.load_all (sc, conf).                          \
+                 map         (lambda b    : ( simplekey(b), [ b ] ) ).  \
+                 reduceByKey (lambda x, y : x + y).                     \
+                 mapValues   (lambda b    : freq_derivative (b)).       \
+                 flatMap     (lambda x    : x[1])
+        
+        '''
+        for k, v in groups.collect ():
+            for b in v:
+                print (" frequency second derivative {0} => {1}".format (k, b.freq_sec_deriv))
+        '''
+        groups = groups.coalesce (1)
+        output_file = os.path.join (conf.output_dir, "eval", "augment.csv")
+        no_proto_output_file = output_file.replace ("file://", "")
+        if os.path.exists (no_proto_output_file):
+            print ("removing existing output file")
+            shutil.rmtree (no_proto_output_file)
+        groups.map(to_csv_row).saveAsTextFile (output_file)
 
     @staticmethod
     def word2vec (conf):
@@ -476,6 +546,7 @@ class Evaluate(object):
         yield (truth, "para", dist[2])
 
     #pubmed_id,pubmed_date_unix_epoch_time,pubmed_date_human_readable,binary_a_term,binary_b_term,paragraph_distance,sentence_distance,word_distance,flag_if_valid,time_until_verified
+
     @staticmethod
     def load_binary (r):
         date = None
@@ -509,7 +580,7 @@ class Evaluate(object):
             options(comment='#').                                   \
             options(delimiter=",").                                 \
             load(input_file).rdd.                                   \
-            map (lambda r : Evaluate.load_binary (r))
+            map (lambda r : load_binary_row (r))
         count = rdd.count ()
         elapsed = time.time () - start
         print ("Loaded {0} rows in {1} seconds".format (count, elapsed))
@@ -591,6 +662,7 @@ def main ():
     parser.add_argument("--plot",   help="Plot data", action='store_true')
     parser.add_argument("--logreg", help="Model prediction function (logistical regression)", action='store_true')
     parser.add_argument("--w2v",    help="Word2Vec model (create)", action='store_true')
+    parser.add_argument("--aug",    help="Add features", action='store_true')
     args = parser.parse_args()
     conf = EvaluateConf (
         spark_conf = SparkConf (host           = args.host,
@@ -613,20 +685,11 @@ def main ():
         Evaluate.train_model (conf)
     elif args.w2v:
         Evaluate.word2vec (conf)
+    elif args.aug:
+        Evaluate.augment (conf)
     else:
         Evaluate.evaluate (conf)
 
 if __name__ == "__main__":
     main()
 
-
-'''
-
->>> import numpy as np
->>> x = [ 0, 1, 2, 3, 4, 5, 5, 5, 5, 5, 6, 9, 12, 30, 100 ]
->>> nx = np.array (x)
->>> np.gradient (nx)
-array([  1. ,   1. ,   1. ,   1. ,   1. ,   0.5,   0. ,   0. ,   0. ,
-         0.5,   2. ,   3. ,  10.5,  44. ,  70. ])
-
-'''

@@ -295,14 +295,17 @@ execute_eval () {
         --geneGene $CTD_GENEGENE \
         $*
 }
-execute_plot () {
-    execute_eval --plot
-}
-execute_model () {
-    execute_eval --logreg # logistical regression
-}
 execute_w2v () {
     execute_eval --w2v --name "WordEmbedding"
+}
+execute_aug () {
+    execute_eval --aug --name "AugmentFeatures"
+}
+execute_model () {
+    execute_eval --logreg --name "LogisticRegression"
+}
+execute_plot () {
+    execute_eval --plot --name "Plot"
 }
 
 main $*
