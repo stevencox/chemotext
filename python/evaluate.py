@@ -82,10 +82,18 @@ class Facts(object):
         ab = Facts.load_facts (sqlContext, conf.ctdAB, 0, 3, 10)
         bc = Facts.load_facts (sqlContext, conf.ctdBC, 0, 2, 8)
         ac = Facts.load_facts (sqlContext, conf.ctdAC, 0, 3, 9)
-        bb = Facts.load_facts (sqlContext, conf.geneGene, 0, 2, 4, delimiter="\t")
-        reference_binaries = [ ab, bc, ac, bb ]
+        #bb = Facts.load_facts (sqlContext, conf.geneGene, 0, 2, 4, delimiter="\t")
+        reference_binaries = [ ab, bc, ac ]
         return sc.union (reference_binaries).flatMap (Facts.expand_ref_binaries).\
             sample(False, debug_scale).\
+            cache ()
+
+    @staticmethod
+    def get_pathway_facts (sc, conf):
+        sqlContext = SQLContext (sc)
+        return Facts.load_facts (sqlContext, conf.geneGene, 0, 2, 4, delimiter="\t"). \
+            flatMap (Facts.expand_ref_binaries). \
+            sample(False, debug_scale). \
             cache ()
 
 class Guesses(object):
@@ -145,7 +153,7 @@ class Guesses(object):
             for g in rdd.collect ():
                 print ("  {0}> {1}->{2}".format (label, g[0], g[1]))
     @staticmethod
-    def annotate (guesses, facts, pmids):
+    def annotate (guesses, facts, pathway_facts, pmids):
         trace_level = logging.ERROR
         Guesses.trace_set (trace_level, "Fact", facts)
         Guesses.trace_set (trace_level, "Guess", guesses)
@@ -300,6 +308,7 @@ class Evaluate(object):
         logger.info ("Evaluating Chemotext2 output: {0}".format (conf.input_dir))
         sc = SparkUtil.get_spark_context (conf.spark_conf)
         facts = Facts.get_facts (sc, conf.ctd_conf)
+        pathway_facts = Facts.get_pathway_facts (sc, conf.ctd_conf)
         logger.info ("Loaded {0} facts".format (facts.count ()))
         articles = SUtil.get_article_paths (conf.input_dir)
         logger.info ("Listed {0} input files".format (len(articles)))
@@ -322,7 +331,7 @@ class Evaluate(object):
                 
                 pmids = sc.broadcast (article_pmids)
                 start = time.time ()
-                annotated = Guesses.annotate (guesses, facts, pmids).cache ()
+                annotated = Guesses.annotate (guesses, facts, pathway_facts, pmids).cache ()
                 elapsed = round (time.time () - start, 2)
                 count = annotated.count ()
                 
@@ -367,7 +376,7 @@ class Evaluate(object):
         big_csv = os.path.join (conf.output_dir, "eval", "eval.csv")
         
         with open (big_csv, "w") as stream:
-            stream.write ("pubmed_id,pubmed_date_unix_epoch_time,pubmed_date_human_readable,binary_a_term,binary_b_term,paragraph_distance,sentence_distance,word_distance,flag_if_valid,time_until_verified\n")
+            stream.write ("#pubmed_id,pubmed_date_unix_epoch_time,pubmed_date_human_readable,binary_a_term,binary_b_term,paragraph_distance,sentence_distance,word_distance,flag_if_valid,time_until_verified\n")
             for f in csv_files:
                 with open (f, "r") as in_csv:
                     for line in in_csv:
@@ -444,32 +453,6 @@ class Evaluate(object):
 
         print ("Output dir: {0}".format (conf.output_dir))
 
-        '''
-        before = sc.parallelize ([], numSlices = conf.spark_conf.parts)
-        distances = sc.parallelize ([])
-
-        for slice_n in range (0, conf.slices):
-
-            logger.info ("reading slice {0}".format (slice_n))
-            files = ",".join ([
-                os.path.join (conf.output_dir, "annotated", str(slice_n), "train"),
-                os.path.join (conf.output_dir, "annotated", str(slice_n), "test")
-            ])
-
-            annotated = sc.textFile (files, minPartitions=conf.spark_conf.parts). \
-                        map    (lambda t : BinaryDecoder().decode (t)). \
-                        filter (lambda x : not isinstance (x, Fact))
-
-            slice_distances = annotated.map (lambda x : ( x.fact, x.docDist, x.paraDist, x.sentDist) )
-            distances = distances.union (slice_distances)
-            logger.info ("   Distances count({0}): {1}".format (slice_n, distances.count ()))
-
-            before = before.union (annotated. \
-                                   map         (lambda b : ( simplekey(b), [ b ] )). \
-                                   reduceByKey (lambda x,y : x + y))
-            logger.info ("   Before count({0}): {1}".format (slice_n, before.count ()))
-#            break
-        '''
         annotated = Evaluate.load_all (sc, conf) #.sample (False, 0.02)
         before = annotated. \
                  map         (lambda b : ( simplekey(b), [ b ] ) ). \
@@ -497,8 +480,11 @@ class Evaluate(object):
     def load_binary (r):
         date = None
         date_str = r.C1
-        if not date_str == "None":
-            date = int (date_str)
+        try:
+            if not date_str == "None":
+                date = int (date_str)
+        except:
+            print ("invalid date: {0}".format (date_str))
         return Binary (
             id = 0,
             L = r.C3, # a
@@ -515,7 +501,7 @@ class Evaluate(object):
             
     @staticmethod
     def load_all (sc, conf):
-        input_file = os.path.join (conf.output_dir, "eval.csv")
+        input_file = os.path.join (conf.output_dir, "eval", "eval.csv")
         start = time.time ()
         sqlContext = SQLContext (sc)
         rdd = sqlContext.read.                                  \

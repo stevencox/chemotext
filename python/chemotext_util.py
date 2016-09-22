@@ -803,7 +803,7 @@ class WordEmbed(object):
                                                               included[ len(included) - 1 ],
                                                               count))
             if count < min_corpus_size:
-                print ("   -- Skipping zero length corpus...")
+                print ("   -- Skipping corpus. min length={0}.".format (min_corpus_size))
                 continue
             try:
                 start = time.time ()
