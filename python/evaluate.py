@@ -9,6 +9,7 @@ import os
 import logging
 import math
 import numpy as np
+import random
 import re
 import shutil
 import sys
@@ -34,7 +35,10 @@ from operator import add
 from plot import Plot
 from pyspark.sql import SQLContext
 from pyspark.mllib.classification import LogisticRegressionWithLBFGS, LogisticRegressionModel
-from pyspark.mllib.regression import LabeledPoint                                                
+from pyspark.mllib.evaluation import RegressionMetrics
+from pyspark.mllib.evaluation import MulticlassMetrics
+from pyspark.mllib.regression import LabeledPoint
+                                                
 
 logger = LoggingUtil.init_logging (__file__)
 
@@ -143,8 +147,21 @@ class Guesses(object):
         )
 
     @staticmethod
-    def mark_binary (binary, is_fact=True):
+    def mark_binary (binary, is_fact=True, pmid_date_map=None):
         binary.fact = is_fact
+        if pmid_date_map:
+            date_map = pmid_date_map.value
+            if len(binary.refs) > 0:
+                confirmed_dates = []
+                for ref in binary.refs:
+                    try:
+                        if ref in date_map:
+                            confirmed_dates.append (date_map [ref])
+                    except:
+                        traceback.print_exc ()
+                earliest = min (confirmed_dates)
+                if earliest is not None and binary.date is not None:
+                    binary.time_til_validated = earliest - binary.date
         return binary
 
     @staticmethod
@@ -154,7 +171,7 @@ class Guesses(object):
             for g in rdd.collect ():
                 print ("  {0}> {1}->{2}".format (label, g[0], g[1]))
     @staticmethod
-    def annotate (guesses, facts, pathway_facts, pmids):
+    def annotate (guesses, facts, pathway_facts, pmids, pmid_date_map):
         trace_level = logging.ERROR
         Guesses.trace_set (trace_level, "Fact", facts)
         Guesses.trace_set (trace_level, "Guess", guesses)
@@ -170,7 +187,7 @@ class Guesses(object):
         # Yields:  ( key -> ( Binary, Fact ) )
         true_positive = guesses.                                                  \
                         join (relevant_facts).                                    \
-                        map (lambda b : ( b[0], Guesses.mark_binary (b[1][0], is_fact=True) ))
+                        map (lambda b : ( b[0], Guesses.mark_binary (b[1][0], is_fact=True, pmid_date_map=pmid_date_map) ))
         Guesses.trace_set (trace_level, "TruePos", true_positive)
         
         # Things we found in articles that are not facts
@@ -371,10 +388,20 @@ class Evaluate(object):
                 logger.info ("Guesses[slice {0}]. {1} binaries in {2} seconds.".format (slice_n, count, elapsed))
                 
                 pmids = sc.broadcast (article_pmids)
+
                 start = time.time ()
-                annotated = Guesses.annotate (guesses, facts, pathway_facts, pmids).cache ()
+                pmid_date_map = None
+                pmid_map_path = os.path.join (conf.output_dir, "pmid", "pmid_date_2.json")
+                with open (pmid_map_path, "r") as stream:
+                    pmid_date_map = json.loads (stream.read ())
                 elapsed = round (time.time () - start, 2)
-                count = annotated.count ()
+
+                if pmid_date_map:
+                    start = time.time ()
+                    pmid_date_map_broadcast = sc.broadcast (pmid_date_map)
+                    annotated = Guesses.annotate (guesses, facts, pathway_facts, pmids, pmid_date_map_broadcast).cache ()
+                    count = annotated.count ()
+                    elapsed = round (time.time () - start, 2)
                 
                 logger.info ("Annotation[slice {0}]. {1} binaries in {2} seconds.".format (slice_n, count, elapsed))
                 logger.info ("Generating annotated output for " + output_dir)
@@ -591,34 +618,16 @@ class Evaluate(object):
         sc = SparkUtil.get_spark_context (conf.spark_conf)
         conf.output_dir = conf.output_dir.replace ("file:", "")
         conf.output_dir = "file://{0}".format (conf.output_dir)
-#        input_file = os.path.join (conf.output_dir, "eval", "eval.csv")
 
-        labeled = Evaluate.load_all (sc, conf).\
-                  map (lambda b : LabeledPoint (
-                      1.0 if b.fact else 0.0,
-                      [ b.paraDist, b.sentDist, b.docDist
-                    ]))
-        '''
-        start = time.time ()
-        sqlContext = SQLContext (sc)
-        labeled = sqlContext.read.                                  \
-            format('com.databricks.spark.csv').                     \
-            options(comment='#').                                   \
-            options(delimiter=",").                                 \
-            load(input_file).rdd.                                   \
-            map (lambda r : LabeledPoint (
-                1.0 if r["C{0}".format (8)] == "true" else 0.0,
-                [
-                    int (r["C{0}".format (5) ]), # para
-                    int (r["C{0}".format (6) ]), # sent
-                    int (r["C{0}".format (7) ]), # doc
-                ]))
-        count = labeled.count ()
-        elapsed = time.time () - start
-        print ("Loaded {0} rows in {1} seconds".format (count, elapsed))
-        '''
+        labeled = Evaluate.load_all (sc, conf). \
+                  map (lambda b : LabeledPoint ( label = 1.0 if b.fact else 0.0,
+                                                 features = [ b.paraDist, b.sentDist, b.docDist ] ) )
 
-        train, test = labeled.randomSplit (weights=[ 0.6, 0.4 ], seed=12345)
+#        labeled = sc.parallelize ([ (x/10) * 9 for x in random.sample(range(1, 100000000), 30000) ]). \
+#                  map (lambda b : LabeledPoint ( 1.0 if b % 2 == 0 else 0.0,
+#                                                 [ b % 2, b * 9 ] ) )
+
+        train, test = labeled.randomSplit (weights=[ 0.8, 0.2 ], seed=12345)
 
         count = train.count ()
         start = time.time ()
@@ -637,9 +646,56 @@ class Evaluate(object):
         elapsed = time.time () - start
         print ("Saved and restored model to {0} in {1} seconds".format (model_path, elapsed))
 
-        labelsAndPreds = train.map (lambda p: (p.label, sameModel.predict (p.features)))
+
+        # Metrics
+        labelsAndPreds = test.map (lambda p: (p.label, model.predict (p.features)))
         trainErr = labelsAndPreds.filter(lambda (v, p): v != p).count () / float (train.count())
         print("Training Error => {0}".format (trainErr))
+
+        predictionsAndLabels = labelsAndPreds.map (lambda x : ( float(x[1]), float(x[0]) ))
+        metrics = MulticlassMetrics (predictionsAndLabels) 
+        print (" --------------> {0}".format (predictionsAndLabels.take (1000)))
+
+        #print (labelsAndPreds.collect ())
+        print ("\nMETRICS:")
+        try:
+            print ("false positive (0.0): {0}".format (metrics.falsePositiveRate(0.0)))
+            print ("false positive (1.0): {0}".format (metrics.falsePositiveRate(1.0)))
+        except:
+            traceback.print_exc ()
+        try:
+            print ("precision          : {0}".format (metrics.precision(1.0)))
+        except:
+            traceback.print_exc ()
+        try:
+            print ("recall             : {0}".format (metrics.recall(1.0)))
+        except:
+            traceback.print_exc ()
+        try:
+            print ("fMeasure           : {0}".format (metrics.fMeasure(0.0, 2.0)))
+        except:
+            traceback.print_exc ()
+
+        print ("confusion matrix   : {0}".format (metrics.confusionMatrix().toArray ()))
+        print ("precision          : {0}".format (metrics.precision()))
+        print ("recall             : {0}".format (metrics.recall()))
+        print ("weighted false pos : {0}".format (metrics.weightedFalsePositiveRate))
+        print ("weighted precision : {0}".format (metrics.weightedPrecision))
+        print ("weighted recall    : {0}".format (metrics.weightedRecall))
+        print ("weight f measure   : {0}".format (metrics.weightedFMeasure()))
+        print ("weight f measure 2 : {0}".format (metrics.weightedFMeasure(2.0)))
+        print ("")
+
+        # Regression metrics
+        predictedAndObserved = test.map (lambda p: (model.predict (p.features) / 1.0 , p.label / 1.0 ) )
+
+        regression_metrics = RegressionMetrics (predictedAndObserved)
+        print ("explained variance......: {0}".format (regression_metrics.explainedVariance))
+        print ("absolute error..........: {0}".format (regression_metrics.meanAbsoluteError))
+        print ("mean squared error......: {0}".format (regression_metrics.meanSquaredError))
+        print ("root mean squared error.: {0}".format (regression_metrics.rootMeanSquaredError))
+        print ("r2......................: {0}".format (regression_metrics.r2))
+        print ("")
 
         labelsAndPreds = test.map (lambda p: (p.label, sameModel.predict (p.features)))
         testErr = labelsAndPreds.filter (lambda (v, p): v != p).count () / float (test.count ())
