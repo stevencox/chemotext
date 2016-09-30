@@ -623,9 +623,10 @@ class Evaluate(object):
                   map (lambda b : LabeledPoint ( label = 1.0 if b.fact else 0.0,
                                                  features = [ b.paraDist, b.sentDist, b.docDist ] ) )
 
-#        labeled = sc.parallelize ([ (x/10) * 9 for x in random.sample(range(1, 100000000), 30000) ]). \
+#        labeled = sc.parallelize ([ round ((x/10) * 9) for x in random.sample(range(1, 100000000), 30000) ]). \
 #                  map (lambda b : LabeledPoint ( 1.0 if b % 2 == 0 else 0.0,
-#                                                 [ b % 2, b * 9 ] ) )
+#                                                 [ b, b * 2, b * 9 ] ) )
+#        print (labeled.collect ())
 
         train, test = labeled.randomSplit (weights=[ 0.8, 0.2 ], seed=12345)
 
