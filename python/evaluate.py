@@ -115,8 +115,10 @@ class Guesses(object):
                     date = SUtil.parse_date (article.date)
                     if date:
                         g.date = calendar.timegm (date.timetuple())
+#                        print ("Parsed guess date -> {0}".format (g.date))
                 except:
-                    print ("No date parsed in {0}".format (article.fileName))
+                    print ("No date parsed in {0} {1}".format (article.fileName, article.date))
+                    traceback.print_exc ()
                 result.append ( ( make_key (g.L, g.R, g.pmid), Guesses.distance (g) ) )
         return result
 
@@ -149,19 +151,29 @@ class Guesses(object):
     @staticmethod
     def mark_binary (binary, is_fact=True, pmid_date_map=None):
         binary.fact = is_fact
-        if pmid_date_map:
-            date_map = pmid_date_map.value
-            if len(binary.refs) > 0:
-                confirmed_dates = []
-                for ref in binary.refs:
-                    try:
-                        if ref in date_map:
-                            confirmed_dates.append (date_map [ref])
-                    except:
-                        traceback.print_exc ()
-                earliest = min (confirmed_dates)
-                if earliest is not None and binary.date is not None:
-                    binary.time_til_validated = earliest - binary.date
+        print ("-------------> mark_binary")
+        try:
+            if pmid_date_map:
+                print (" data map {0}".format (pmid_date_map))
+                date_map = pmid_date_map.value
+                if len(binary.refs) > 0:
+                    print (" binary refs len {0}".format (len(binary.refs)))
+                    confirmed_dates = []
+                    for ref in binary.refs:
+                        try:
+                            if ref in date_map:
+                                confirmed_dates.append (date_map [ref])
+                        except:
+                            traceback.print_exc ()
+                    earliest = min (confirmed_dates)
+                    print (" earliest: {0} binary.date: {1}".format (earliest, binary.date))
+                    if earliest is not None and binary.date is not None:
+                        binary.time_until_verified = earliest - binary.date
+            else:
+                print ("pmid_date_map is None")
+        except:
+            traceback.print_exc ()
+            print ("Exception -------------------------------")
         return binary
 
     @staticmethod
@@ -183,12 +195,16 @@ class Guesses(object):
         '''
         relevant_facts = facts.filter (lambda f : f[1].pmid in pmids.value).cache ()
         
+        print (" relevant_facts size: {0}".format (relevant_facts.count ()))
+
         # Things we found in articles that are facts
         # Yields:  ( key -> ( Binary, Fact ) )
         true_positive = guesses.                                                  \
                         join (relevant_facts).                                    \
                         map (lambda b : ( b[0], Guesses.mark_binary (b[1][0], is_fact=True, pmid_date_map=pmid_date_map) ))
         Guesses.trace_set (trace_level, "TruePos", true_positive)
+
+        print (" true_positive size: {0}".format (true_positive.count ()))
         
         # Things we found in articles that are not facts
         false_positive = guesses.subtractByKey (true_positive).                  \
@@ -315,7 +331,8 @@ def to_csv_row (b):
         str(b.sentDist),
         str(b.docDist),
         str(b.fact).lower (),
-        str(b.date) # time_until_verified
+        str(b.time_until_verified),
+        str(b.freq_sec_deriv)
     ])
 
 def load_binary_row (r):
@@ -368,7 +385,7 @@ class Evaluate(object):
         facts = Facts.get_facts (sc, conf.ctd_conf)
         pathway_facts = Facts.get_pathway_facts (sc, conf.ctd_conf)
         logger.info ("Loaded {0} facts".format (facts.count ()))
-        articles = SUtil.get_article_paths (conf.input_dir)
+        articles = SUtil.get_article_paths (conf.input_dir) #[:200]
         logger.info ("Listed {0} input files".format (len(articles)))
         for slice_n in range (0, conf.slices):
             output_dir = os.path.join (conf.output_dir, "eval", "annotated", str(slice_n))
@@ -391,12 +408,18 @@ class Evaluate(object):
 
                 start = time.time ()
                 pmid_date_map = None
-                pmid_map_path = os.path.join (conf.output_dir, "pmid", "pmid_date_2.json")
+                pmid_map_path = os.path.join ( os.path.dirname (conf.input_dir), "pmid", "pmid_date_2.json")
+                # /projects/stars/var/chemotext/pmid/pmid_date_2.json
+
+                print ("Loading pmid date map: {0}".format (pmid_map_path))
                 with open (pmid_map_path, "r") as stream:
                     pmid_date_map = json.loads (stream.read ())
                 elapsed = round (time.time () - start, 2)
+                print ("Read pmid date map in {0} seconds".format (elapsed))
 
-                if pmid_date_map:
+                if pmid_date_map is None:
+                    print ("Unable to load pmid date map")
+                else:
                     start = time.time ()
                     pmid_date_map_broadcast = sc.broadcast (pmid_date_map)
                     annotated = Guesses.annotate (guesses, facts, pathway_facts, pmids, pmid_date_map_broadcast).cache ()
@@ -444,7 +467,7 @@ class Evaluate(object):
         big_csv = os.path.join (conf.output_dir, "eval", "eval.csv")
         
         with open (big_csv, "w") as stream:
-            stream.write ("#pubmed_id,pubmed_date_unix_epoch_time,pubmed_date_human_readable,binary_a_term,binary_b_term,paragraph_distance,sentence_distance,word_distance,flag_if_valid,time_until_verified\n")
+            stream.write ("#pubmed_id,pubmed_date_unix_epoch_time,pubmed_date_human_readable,binary_a_term,binary_b_term,paragraph_distance,sentence_distance,word_distance,flag_if_valid,time_until_verified,freq_sec_deriv\n")
             for f in csv_files:
                 with open (f, "r") as in_csv:
                     for line in in_csv:
@@ -571,8 +594,6 @@ class Evaluate(object):
         yield (truth, "doc",  dist[0])
         yield (truth, "sent", dist[1])
         yield (truth, "para", dist[2])
-
-    #pubmed_id,pubmed_date_unix_epoch_time,pubmed_date_human_readable,binary_a_term,binary_b_term,paragraph_distance,sentence_distance,word_distance,flag_if_valid,time_until_verified
 
     @staticmethod
     def load_binary (r):

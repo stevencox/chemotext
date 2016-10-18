@@ -75,6 +75,7 @@ class Binary(object):
         self.rightDocPos = rightDocPos
         self.date = date
         self.freq_sec_deriv = None
+        self.time_until_verified = None
     def __str__ (self):
         return self.__repr__()
     def __repr__ (self):
@@ -327,22 +328,6 @@ class SparkConf(object):
         self.venv = venv
         self.framework_name = framework_name
         self.parts = parts
-'''
-class EquivConf(object):
-    def __init__(self, spark_conf, input_dir, output_dir):
-        self.spark_conf = spark_conf
-        self.input_dir = input_dir
-        self.output_dir = output_dir
-'''
-class EvaluateConf0(Conf):
-    def __init__(self, host, venv, framework_name, input_dir, output_dir, slices, parts, ctdAB, ctdBC, ctdAC):
-        super(EvaluateConf, self).__init__(host, venv, framework_name, input_dir, output_dir, parts)
-        self.output_dir = output_dir
-        self.slices = slices
-        self.parts = parts
-        self.ctdAB = ctdAB
-        self.ctdBC = ctdBC
-        self.ctdAC = ctdAC
 class CTDConf(object):
     def __init__(self, ctdAB, ctdBC, ctdAC, geneGene):
         self.ctdAB = ctdAB
@@ -350,7 +335,7 @@ class CTDConf(object):
         self.ctdAC = ctdAC
         self.geneGene = geneGene
 class EvaluateConf(Conf):
-    def __init__(self, spark_conf, input_dir, output_dir, slices, sample, ctd_conf):
+    def __init__(self, spark_conf, input_dir, output_dir, slices, sample=None, ctd_conf=None):
         super(EvaluateConf, self).__init__(spark_conf, input_dir, output_dir)
         self.ctd_conf = ctd_conf
         self.slices = slices

@@ -307,5 +307,32 @@ execute_model () {
 execute_plot () {
     execute_eval --plot --name "Plot"
 }
+execute_words () {
+    edev () {
+        INPUTPATH=/Users/scox/dev/starshome/app/chemotext/data/output.mesh.full
+        INPUTPATH=$OUTPUTPATH #/projects/stars/var/chemotext/output.mesh.full.2016-07-09
+        EVAL_SLICES=2
+        EVAL_PARTS=1
+        EVAL_SAMPLE=1
+    }
+    eprod () {
+        INPUTPATH=/projects/stars/var/chemotext/output.mesh.full.2016-07-09
+        EVAL_SLICES=10
+        EVAL_PARTS=$(( 32 * 6 * 3 )) # 32 cores x 5 tasks x 3 (spark constant)
+        EVAL_SAMPLE=1
+    }
+    e$env
+    spark \
+	--py-files python/chemotext_util.py  \
+        $APP_HOME/python/words.py \
+        --host  $MESOS_MASTER \
+        --name  "Chemotext2:Words" \
+        --venv  $VENV \
+        --input $INPUTPATH \
+	--output $DATA_HOME \
+        --slices $EVAL_SLICES \
+        --parts $EVAL_PARTS \
+	$*
+}
 
 main $*
