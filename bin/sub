@@ -205,6 +205,9 @@ spark () {
 	--conf spark.driver.memory=$ARG_DRIVER_MEMORY \
 	--conf spark.driver.maxResultSize=$ARG_MAX_RESULT_SIZE \
 	--conf "spark.driver.extraJavaOptions=${EXTRA_JAVA_OPTS}" \
+	--conf spark.shuffle.blockTransferService=nio \
+	--conf spark.shuffle.compress=false \
+	--conf spark.shuffle.compress=false \
         --packages $SPARK_CSV,$SPARK_XML \
         $*
 }
@@ -318,8 +321,10 @@ execute_words () {
     eprod () {
         INPUTPATH=/projects/stars/var/chemotext/output.mesh.full.2016-07-09
         EVAL_SLICES=10
-        EVAL_PARTS=$(( 32 * 6 * 3 )) # 32 cores x 5 tasks x 3 (spark constant)
+        EVAL_PARTS=$(( 32 * 6 )) #$(( 32 * 6 * 3 )) # 32 cores x 5 tasks x 3 (spark constant)
         EVAL_SAMPLE=1
+#	ARG_DRIVER_MEMORY=220G    
+#	ARG_MAX_RESULT_SIZE=100G
     }
     e$env
     spark \

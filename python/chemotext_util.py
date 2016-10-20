@@ -161,6 +161,7 @@ class Article(object):
         self.AC = AC
         self.BB = BB
         self.ABC = ABC
+        self.words = None
 
 class ArticleEncoder(JSONEncoder):
     def default(self, obj):
@@ -309,6 +310,27 @@ class SerializationUtil(object):
                 result = datetime.datetime.strptime (text, "%d-%b-%Y")
             logger.debug ("Parsed date: {0}, ts: {1}".format (result, calendar.timegm(result.timetuple())))
         return result
+
+class CT2(object):
+
+    def __init__(self, articles):
+        "Store the article objects"
+        self.articles = articles
+
+    @classmethod
+    def from_conf (cls, conf, limit=10000000):
+        "Load article objects according to the config"
+        sc = SparkUtil.get_spark_context (conf.spark_conf)
+        return CT2.from_repl (sc, conf.input_dir, conf.spark_conf.parts, limit)
+
+    @classmethod
+    def from_repl (cls, sc, indir, partitions=32*6, limit=1000000):
+        "Load article objects in a command line context where we already have a spark context"
+        article_paths = SerializationUtil.get_article_paths (indir) [:limit]
+        articles = sc.parallelize (article_paths, partitions). \
+                   map (lambda p : SerializationUtil.get_article (p)).cache ()
+        return cls(articles)
+
 class Conf0(object):
     def __init__(self, host, venv, framework_name, input_dir, output_dir=None, parts=0):
         self.host = host
