@@ -162,7 +162,29 @@ class Article(object):
         self.BB = BB
         self.ABC = ABC
         self.words = None
-
+    def get_year (self):
+        result = None
+        if self.date is not None and self.date.count ('-') == 2:
+            year = self.date.split('-')[2]
+            if len(year) >= 4:
+                try:
+                    result = int (year[:4])
+                except:
+                    traceback.print_exc ()
+        return result
+    def get_month (self):
+        result = None
+        if self.date is not None and self.date.count ('-') == 2:
+            try:
+                result = int (self.date.split('-')[1])
+            except:
+                traceback.print_exc ()
+        return result
+    def get_month_year (self):
+        year = self.get_year ()
+        month = self.get_month ()
+        return "{0}-{1}".format (month, year) if year is not None and month is not None else None
+            
 class ArticleEncoder(JSONEncoder):
     def default(self, obj):
         # Convert objects to a dictionary of their representation

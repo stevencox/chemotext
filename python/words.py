@@ -13,6 +13,7 @@ from chemotext_util import EvaluateConf
 from chemotext_util import LoggingUtil
 from chemotext_util import SerializationUtil as SUtil
 from chemotext_util import SparkUtil
+from itertools import islice
 
 logger = LoggingUtil.init_logging (__file__)
 
@@ -52,41 +53,112 @@ def build (conf):
     model = gensim.models.Word2Vec (sentences, workers = 32)
 
 #--------------------------------------------------------------------------------------------------------------
+NULL_WINDOW = '0'
 
-def generate_year_model (w2v_dir, year, sentences):
+def generate_model (w2v_dir, tag, sentences):
     model = None
     count = len (sentences)
-    if count > 0:
+    if tag != NULL_WINDOW and count > 0:
         workers = 16 if count > 1000 else 4
+        if count > 100000:
+            count = 32
         model = gensim.models.Word2Vec (sentences, workers=workers)
-        file_name = os.path.join (w2v_dir, "pmc-{0}.w2v".format (year))
+        file_name = os.path.join (w2v_dir, "pmc-{0}.w2v".format (tag))
         print ("  ==== *** ==== Writing model file => {0}".format (file_name))
         model.save (file_name)
     return model
 
 def sentences_by_year (a):
-    result = ( '0', [] )
-    if a is not None and a.date is not None and a.date.count ('-') == 2:
-        year = a.date.split('-')[2]
-        if len(year) >= 4:
-            year = year[:4]
-            words = [ s.split(' ') for p in a.paragraphs for s in p.sentences ]
-            result = ( year, words )
+    result = ( NULL_WINDOW, [] )
+    year = a.get_year () if a is not None else None
+    if year:
+        words = [ s.split(' ') for p in a.paragraphs for s in p.sentences ]
+        result = ( year, words )
     return result
 
+def generate_year_models (articles, model_dir):
+    year_dir = os.path.join (model_dir, "1_year")
+    os.makedirs (year_dir)
+
+    count = articles.map (lambda a : sentences_by_year (a)). \
+            reduceByKey (lambda x, y: x + y). \
+            map (lambda x : generate_model (year_dir, x[0], x[1])).count ()
+    print ("Generated {0} year models.".format (count))
+
+def get_windows(seq, n=3):
+    "Returns a sliding window (of width n) over data from the iterable"
+    "   s -> (s0,s1,...s[n-1]), (s1,s2,...,sn), ...                   "
+    it = iter(seq)
+    result = tuple(islice(it, n))
+    if len(result) == n:
+        yield result
+    for elem in it:
+        result = result[1:] + (elem,)
+        yield result
+
+def sentences_by_years (a, window):
+    result = ( NULL_WINDOW, [] )
+    year = a.get_year () if a is not None else None
+    if len(window) > 0 and year in window:
+        words = [ s.split(' ') for p in a.paragraphs for s in p.sentences ]
+        items = map (lambda y : str(y), window)
+        result = ( '-'.join (items), words )
+    return result
+
+def generate_span_models (articles, model_dir):
+    years = sorted (articles.map (lambda a : a.get_year () if a is not None else None).\
+                    distinct().collect ())
+    three_year_dir = os.path.join (model_dir, "3_year")
+    os.makedirs (three_year_dir)
+
+    windows = get_windows (years)
+    for window in windows:
+        if any (map (lambda w : w is None, window)):
+            continue
+        print ("Window=> {0}".format (window))
+        count = articles.map (lambda a : sentences_by_years (a, window)). \
+                reduceByKey (lambda x, y: x + y). \
+                map (lambda x : generate_model (three_year_dir, x[0], x[1])).count ()
+        print ("Generated {0} 3 year window models: {1}.".format (count, window))
+
+def sentences_by_month (a):
+    result = ( NULL_WINDOW, [] )
+    key = a.get_month_year () if a is not None else None
+    if key is not None:
+        result = ( key, [ s.split(' ') for p in a.paragraphs for s in p.sentences ] )
+    return result
+
+def generate_month_models (articles, model_dir):
+    years = sorted (articles.map (lambda a : a.get_month_year () if a is not None else None).\
+                    distinct().collect ())
+    month_dir = os.path.join (model_dir, "month")
+    os.makedirs (month_dir)
+    count = articles.map (lambda a : sentences_by_month (a)). \
+            reduceByKey (lambda x, y: x + y). \
+            map (lambda x : generate_model (month_dir, x[0], x[1])).count ()
+    print ("Generated {0} month models..".format (count))
+
 def build_models (conf):
+    '''
+    Configure output dirctory
+    :param conf: Configuration information.
+    :type conf: chemotext_util.EvaluateConf
+    :return: void
+    :rtype: void
+    '''
     root = os.path.dirname (conf.input_dir)
-    w2v_dir = os.path.join (root, "w2v", "gensim")
+    model_dir = os.path.join (root, "w2v", "gensim")
     limit=5000000
+    ct2 = CT2.from_conf (conf, limit=limit)
 
-    count = CT2.from_conf (conf, limit=limit). \
-            articles.map (lambda a : sentences_by_year (a)). \
-            reduceByKey (lambda x,y: x + y). \
-            map (lambda x : generate_year_model (w2v_dir, x[0], x[1])).count ()
-
-    print ("Count: {0}".format (count))
+    generate_year_models (ct2.articles, model_dir)
+    generate_span_models (ct2.articles, model_dir)
+    generate_month_models (ct2.articles, model_dir)
 
 def main ():
+    '''
+    Tools for running word2vec on the corpus.
+    '''
     parser = argparse.ArgumentParser()
     parser.add_argument("--host",   help="Mesos master host")
     parser.add_argument("--name",   help="Spark framework name")
