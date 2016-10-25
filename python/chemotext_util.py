@@ -335,9 +335,10 @@ class SerializationUtil(object):
 
 class CT2(object):
 
-    def __init__(self, articles):
+    def __init__(self, articles, sc):
         "Store the article objects"
         self.articles = articles
+        self.sc = sc
 
     @classmethod
     def from_conf (cls, conf, limit=10000000):
@@ -351,7 +352,7 @@ class CT2(object):
         article_paths = SerializationUtil.get_article_paths (indir) [:limit]
         articles = sc.parallelize (article_paths, partitions). \
                    map (lambda p : SerializationUtil.get_article (p)).cache ()
-        return cls(articles)
+        return cls(articles, sc)
 
 class Conf0(object):
     def __init__(self, host, venv, framework_name, input_dir, output_dir=None, parts=0):

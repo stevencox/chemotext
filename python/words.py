@@ -3,6 +3,12 @@ import argparse
 import glob
 import json
 import os
+#--------------------------------------------------------------------------------------------------------------
+#-- @author: Steve Cox
+#-- 
+#-- Creates word2vec models of pubmed central full text articles. Uses gensim word2vec.
+#--
+#--------------------------------------------------------------------------------------------------------------
 import gensim
 import logging
 import traceback
@@ -17,73 +23,103 @@ from itertools import islice
 
 logger = LoggingUtil.init_logging (__file__)
 
-def parse_article (p): 
-    result = []
-    a = SUtil.get_article (p)
-    if a:
-        a.words = [ s.split (' ') for paragraph in a.paragraphs for s in paragraph.sentences ]
-        a.words = [ w.replace ('.', '') for w_set in a.words for w in w_set ]
-    return a
-
+#--------------------------------------------------------------------------------------------------------------
+#-- An iterator for sentences in files in an arbitrary directory.
+#--------------------------------------------------------------------------------------------------------------
 class SentenceGenerator(object):
-    def __init__(self, conf):
-        sc = SparkUtil.get_spark_context (conf.spark_conf)
-        article_paths = SUtil.get_article_paths (conf.input_dir) [:200000]
-        self.articles = sc.parallelize (article_paths, conf.spark_conf.parts). \
-                        map (lambda p : parse_article (p))
-
+    def __init__(self, dir_name):
+        self.dir_name = dir_name
     def __iter__(self):
-        # Take a chunk of articles
-        chunk = self.articles.take (10000)
-
-        # Remove taken articles 
-        ids = [ a.id for a in chunk ]
-        self.articles = self.articles.filter (lambda a : a.id not in ids)
-
-        # Get the sentences
-        all_sentences = [ a.words for a in chunk ]
-        print ("Processing {0} sentences.".format (len (all_sentences)))
-        with open ("x", "w") as stream:
-            for s in all_sentences:
-                stream.write (" sentence=> {0}\n".format (s))
-        for each in all_sentences:
-            yield each
-def build (conf):
-    sentences = SentenceGenerator (conf) # a memory-friendly iterator
-    model = gensim.models.Word2Vec (sentences, workers = 32)
+        for fname in os.listdir(self.dir_name):
+            for line in open(os.path.join(self.dir_name, fname)):
+                print ("generate sentence... {0}".format (line))
+                yield line.split()
 
 #--------------------------------------------------------------------------------------------------------------
-NULL_WINDOW = '0'
-
+#-- Generate a Gensim Word2Vec model
+#--------------------------------------------------------------------------------------------------------------
 def generate_model (w2v_dir, tag, sentences):
     model = None
     count = len (sentences)
     if tag != NULL_WINDOW and count > 0:
         workers = 16 if count > 1000 else 4
-        if count > 100000:
-            count = 32
         model = gensim.models.Word2Vec (sentences, workers=workers)
         file_name = os.path.join (w2v_dir, "pmc-{0}.w2v".format (tag))
         print ("  ==== *** ==== Writing model file => {0}".format (file_name))
         model.save (file_name)
     return model
+def generate_model (w2v_dir, tag, sentences):
+    model = None
+    if tag != NULL_WINDOW:
+        file_name = os.path.join (w2v_dir, "pmc-{0}.w2v".format (tag))
+        if os.path.exists (file_name):
+            print ("  ====> Skipping existing model: {0}".format (file_name))
+        else:
+            print ("  ==== *** ==== Generating model file => {0}".format (file_name))
+            model = gensim.models.Word2Vec (sentences, workers=16)
+            print ("  ==== *** ==== Writing model file => {0}".format (file_name))
+            model.save (file_name)
+    return model
 
+#--------------------------------------------------------------------------------------------------------------
+#-- Year models
+#--------------------------------------------------------------------------------------------------------------
 def sentences_by_year (a):
     result = ( NULL_WINDOW, [] )
     year = a.get_year () if a is not None else None
-    if year:
+    if year and year > MIN_PUB_YEAR:
         words = [ s.split(' ') for p in a.paragraphs for s in p.sentences ]
         result = ( year, words )
     return result
+    
 
-def generate_year_models (articles, model_dir):
-    year_dir = os.path.join (model_dir, "1_year")
-    os.makedirs (year_dir)
+def write_sentence_slice (output_path, index, v):
+    out_file = os.path.join (output_path, "0")
+    print ("Saving sentences {0}".format (out_file))
+    with open (out_file, "w") as stream:
+        for sentence in v:
+            stream.write ("{0}\n".format (' '.join (sentence)))
 
-    count = articles.map (lambda a : sentences_by_year (a)). \
-            reduceByKey (lambda x, y: x + y). \
-            map (lambda x : generate_model (year_dir, x[0], x[1])).count ()
-    print ("Generated {0} year models.".format (count))
+def write_year_sentences_worker (sent_dir, p):
+    k = p[0]
+    v = p[1]
+    result = 0
+    if k is not None:
+        output_path = os.path.join (sent_dir, str(k))
+        if os.path.exists (output_path):
+            print ("   skipping output {0}. already exists.".format (output_path))
+        else:
+            os.makedirs (output_path)
+            count = len (v)
+            slice_size = 1000
+            slice_n = int(count / slice_size)
+            remainder = count - slice_size
+            for x in range (0, slice_n):
+                write_sentence_slice (output_path, x, v[x * slice_size : slice_size])
+            write_sentence_slice (output_path, slice_n + 1, v[ slice_n * slice_size : len(v) - 1 ])
+            result = count
+    return result
+
+def generate_year_sentences (articles, model_dir):
+    sent_dir = os.path.join (model_dir, "1_year", "sentences")
+    if not os.path.exists (sent_dir):
+        os.makedirs (sent_dir)
+    sentences = articles.map (lambda a : sentences_by_year (a))
+    counts = sentences.map (lambda t : len(t[1])).sum ()
+    print ("num sentences: {0}".format (counts))
+    sentences = sentences.\
+                coalesce(NUM_CLUSTER_NODES).\
+                reduceByKey (lambda x, y: x + y). \
+                map (lambda p : write_year_sentences_worker (sent_dir, p)). \
+                sum ()
+    print ("Wrote {0} sentences".format (sentences))
+
+#--------------------------------------------------------------------------------------------------------------
+#-- Windowed models
+#--------------------------------------------------------------------------------------------------------------
+NULL_WINDOW = 0
+MIN_PUB_YEAR = 1800
+NUM_CLUSTER_NODES=6
 
 def get_windows(seq, n=3):
     "Returns a sliding window (of width n) over data from the iterable"
@@ -95,7 +131,6 @@ def get_windows(seq, n=3):
     for elem in it:
         result = result[1:] + (elem,)
         yield result
-
 def sentences_by_years (a, window):
     result = ( NULL_WINDOW, [] )
     year = a.get_year () if a is not None else None
@@ -104,8 +139,8 @@ def sentences_by_years (a, window):
         items = map (lambda y : str(y), window)
         result = ( '-'.join (items), words )
     return result
-
-def generate_span_models (articles, model_dir):
+'''
+def generate_span_models0 (articles, model_dir):
     years = sorted (articles.map (lambda a : a.get_year () if a is not None else None).\
                     distinct().collect ())
     three_year_dir = os.path.join (model_dir, "3_year")
@@ -120,7 +155,94 @@ def generate_span_models (articles, model_dir):
                 reduceByKey (lambda x, y: x + y). \
                 map (lambda x : generate_model (three_year_dir, x[0], x[1])).count ()
         print ("Generated {0} 3 year window models: {1}.".format (count, window))
+'''
 
+#---
+def generate_span_sentences (articles, model_dir, timeframe):
+    '''
+    Generate a model for the input articles to the output directory.
+    :param articles List of parsed article objects
+    :type articles: pyspark.rdd.RDD
+    :param model_dir Output directory for models
+    :type model_dir String
+    '''
+    years = sorted (articles.map (lambda a : a.get_year () if a is not None else None).\
+                    distinct().collect ())
+
+    out_dir = os.path.join (model_dir, timeframe)
+    if not os.path.exists (out_dir):
+        os.makedirs (out_dir)
+    sent_dir = os.path.join (out_dir, "sentences")
+
+    windows = get_windows (years)
+    for window in windows:
+        if any (map (lambda w : w is None, window)):
+            continue
+        print ("   --window=> {0}".format (window))
+        window_name = '-'.join ( map (lambda a : str(a), window) )
+        output_path = os.path.join (sent_dir, window_name)
+        if os.path.exists (output_path):
+            print ("Sentences for {0} already exist".format (window_name))
+        else:
+            articles.map (lambda a : sentences_by_years (a, window)). \
+                    reduceByKey (lambda x, y: x + y). \
+                    map (lambda p : p[1]). \
+                    saveAsTextFile ("file://{0}".format (output_path))
+            print ("Generated 3 year window sentences: {0}".format (window_name))
+
+def generate_span_sentences (articles, model_dir, timeframe):
+    years = sorted (articles.map (lambda a : a.get_year () if a is not None else None).distinct().collect ())
+    sent_dir = os.path.join (model_dir, "3_year", "sentences")
+    if not os.path.exists (sent_dir):
+        os.makedirs (sent_dir)
+    windows = get_windows (years)
+    for window in windows:
+        if any (map (lambda w : w is None, window)):
+            continue
+        print ("   --window=> {0}".format (window))
+        sentences = articles.map (lambda a : sentences_by_years (a, window))
+        counts = sentences.map (lambda t : len(t[1])).sum ()
+        print ("      num sentences: {0}".format (counts))
+        sentences = sentences.\
+                    coalesce(NUM_CLUSTER_NODES).\
+                    reduceByKey (lambda x, y: x + y). \
+                    map (lambda p : write_year_sentences_worker (sent_dir, p)). \
+                    sum ()
+        print ("Wrote {0} sentences".format (sentences))
+
+
+#---
+
+# GENERIC
+def generate_model_worker (sent_dir, out_dir, tag):
+    print ("Generating sentences for: {0}".format (out_dir))
+    try:
+        sentences = SentenceGenerator (sent_dir)
+        generate_model (out_dir, tag, sentences)
+    except:
+        print ("Error generating model: {0}/{1}".format (out_dir, tag))
+        traceback.print_exc ()
+
+def generate_models (sc, model_dir, timeframe):
+    '''
+    Generate a model for the sentence directory to the output directory.
+    :param model_dir Output directory for models
+    :type model_dir String
+    '''
+    out_dir = os.path.join (model_dir, timeframe) # out_dir_name
+    if not os.path.exists (out_dir):
+        os.makedirs (out_dir)
+    sent_dir = os.path.join (out_dir, "sentences")
+    tags = os.listdir (sent_dir)
+    partitions = 70
+    dirs = sc.parallelize (tags, partitions). \
+           map (lambda t : generate_model_worker (os.path.join (sent_dir, t),
+                                                  out_dir,
+                                                  t)).count ()
+
+#--------------------------------------------------------------------------------------------------------------
+#-- Month models
+#--------------------------------------------------------------------------------------------------------------
 def sentences_by_month (a):
     result = ( NULL_WINDOW, [] )
     key = a.get_month_year () if a is not None else None
@@ -128,32 +250,48 @@ def sentences_by_month (a):
         result = ( key, [ s.split(' ') for p in a.paragraphs for s in p.sentences ] )
     return result
 
-def generate_month_models (articles, model_dir):
-    years = sorted (articles.map (lambda a : a.get_month_year () if a is not None else None).\
-                    distinct().collect ())
-    month_dir = os.path.join (model_dir, "month")
-    os.makedirs (month_dir)
-    count = articles.map (lambda a : sentences_by_month (a)). \
-            reduceByKey (lambda x, y: x + y). \
-            map (lambda x : generate_model (month_dir, x[0], x[1])).count ()
-    print ("Generated {0} month models..".format (count))
+# make month sentences...
+def generate_month_sentences (articles, model_dir):
+    sent_dir = os.path.join (model_dir, "month", "sentences")
+    if not os.path.exists (sent_dir):
+        os.makedirs (sent_dir)
 
+    sentences = articles.map (lambda a : sentences_by_month (a))
+    counts = sentences.map (lambda t : len(t[1])).sum ()
+    print ("num sentences: {0}".format (counts))
+
+    sentences = sentences.\
+                coalesce(NUM_CLUSTER_NODES).\
+                reduceByKey (lambda x, y: x + y). \
+                map (lambda p : write_year_sentences_worker (sent_dir, p)). \
+                sum ()
+    print ("Wrote {0} sentences".format (sentences))
+
+
+
+#-------------------------
 def build_models (conf):
-    '''
-    Configure output dirctory
-    :param conf: Configuration information.
-    :type conf: chemotext_util.EvaluateConf
-    :return: void
-    :rtype: void
-    '''
     root = os.path.dirname (conf.input_dir)
     model_dir = os.path.join (root, "w2v", "gensim")
     limit=5000000
     ct2 = CT2.from_conf (conf, limit=limit)
 
-    generate_year_models (ct2.articles, model_dir)
-    generate_span_models (ct2.articles, model_dir)
-    generate_month_models (ct2.articles, model_dir)
+    timeframe = "1_year"
+    generate_year_sentences (ct2.articles, model_dir)
+    generate_models (ct2.sc, model_dir, timeframe)
+
+    timeframe = "3_year"
+    generate_span_sentences (ct2.articles, model_dir, timeframe)
+    generate_models (ct2.sc, model_dir, timeframe)
+
+    timeframe = "month"
+    generate_month_sentences (ct2.articles, model_dir)
+    generate_models (ct2.sc, model_dir, timeframe)
+    
+
+
+
+
 
 def main ():
     '''
