@@ -1,5 +1,7 @@
 from __future__ import division
 import argparse
+import calendar
+import datetime
 import glob
 import json
 import os
@@ -35,31 +37,147 @@ class SentenceGenerator(object):
                 print ("generate sentence... {0}".format (line))
                 yield line.split()
 
+class ArticleSentenceGenerator(object):
+    def __init__(self, input_dir, file_list):
+        self.input_dir = input_dir
+        with open (file_list) as stream:
+            self.files = json.loads (stream.read ())
+            print ("================> sentence generator. filelist: {0}".format (len (self.files)))
+    def fix_path (self, path):
+        base = "{0}.json".format (os.path.basename (path))
+        return os.path.join(self.input_dir, base)
+    def __iter__(self):
+        for file_name in self.files:
+            if self.match (file_name):
+                article_path = self.fix_path (file_name)
+                article = SUtil.get_article (article_path)
+                if article is not None:
+                    sentences = [ s.split(' ') for p in article.paragraphs for s in p.sentences ]
+                    for s in sentences:
+                        yield s
+    def match (self, article):
+        return True
+
+class YearArticleSentenceGenerator (ArticleSentenceGenerator):
+    def __init__(self, input_dir, file_list, year):
+        ArticleSentenceGenerator.__init__ (self, input_dir, file_list)
+        self.year = year
+    def match (self, article_path):
+        return "_{0}_".format (self.year) in article_path
+
+class YearSpanArticleSentenceGenerator (ArticleSentenceGenerator):
+    def __init__(self, input_dir, file_list, years):
+        ArticleSentenceGenerator.__init__ (self, input_dir, file_list)
+        self.years = years
+    def match (self, article_path):
+        return any (map (lambda y : "_{0}_".format (y) in article_path, self.years) )
+
+class MonthArticleSentenceGenerator (ArticleSentenceGenerator):
+    def __init__(self, input_dir, file_list, year, month): 
+        ArticleSentenceGenerator.__init__ (self, input_dir, file_list)
+        self.year = year
+        self.month_name = calendar.month_name [month][0:3]
+        self.text = "_{0}_{1}_".format (year, self.month_name)
+    def match (self, article_path):
+        return self.text in article_path
+
+def generate_year_model (in_dir, file_list, out_dir, year):
+    result = 0
+    try:
+        sentences = YearArticleSentenceGenerator (in_dir, file_list, year)
+        result = generate_model (out_dir, str(year), sentences)
+    except:
+        traceback.print_exc ()
+    return result
+def generate_span_model (in_dir, file_list, out_dir, years):
+    result = 0
+    try:
+        sentences = YearSpanArticleSentenceGenerator (in_dir, file_list, years)
+        result = generate_model (out_dir, '-'.join (map(lambda y : str(y), years)), sentences)
+    except:
+        traceback.print_exc ()
+    return result
+def generate_month_model (in_dir, file_list, out_dir, year, month):
+    result = 0
+    try:
+        sentences = MonthArticleSentenceGenerator (in_dir, file_list, year, month)
+        result = generate_model (out_dir, "{0}-{1}".format (year, month), sentences)
+    except:
+        traceback.print_exc ()
+    return result
+
+def build_year_models (sc, in_dir, file_list, out_dir):
+    '''
+    years = []
+    for y in range (1900, datetime.datetime.now().year):
+        years.append (y)
+
+    months = [ ]
+    for y in years:
+        for m in range (1, 12):
+            months.append ( ( y, m ) )
+    '''
+
+    years = [ y for y in range (1900, datetime.datetime.now().year) ]
+    months = [ ( y, m ) for y in years for m in range (1, 12) ]
+    windows = get_windows (years)
+    composite = [ ( "year", y ) for y in years ] + \
+                [ ( "month", m ) for m in months ] + \
+                [ ( "span", s ) for s in windows ]
+    '''
+    composite = []
+    for y in years:
+        composite.append ( ( "year", y ) )
+    for w in windows:
+        composite.append ( ( "span", w ) )
+    for m in months:
+        composite.append ( ( "month", m ) )
+    '''
+    models = sc.parallelize (composite, numSlices=200). \
+             map (lambda c : generate_model_dynamic (in_dir, file_list, out_dir, c)). \
+             filter (lambda c : c is not None).\
+             sum ()
+
+def get_model_dir (out_dir, element_type):
+    model_dir = os.path.join (out_dir, element_type)
+    if not os.path.exists (model_dir):
+        os.makedirs (model_dir)
+    return model_dir
+
+def generate_model_dynamic (in_dir, file_list, out_dir, element):
+    result = 0
+    element_type = element [0]
+    print ("Element -> {0}".format (element_type))
+    model_dir = get_model_dir (out_dir, element_type)
+    if element_type == "year":
+        result = generate_year_model (in_dir, file_list, model_dir, element[1])
+    elif element_type == "span":
+        result = generate_span_model (in_dir, file_list, model_dir, element[1])
+    elif element_type == "month":
+        pair = element [1]
+        result = generate_month_model (in_dir, file_list, model_dir, pair[0], pair[1])
+    return result
+
 #--------------------------------------------------------------------------------------------------------------
 #-- Generate a Gensim Word2Vec model
 #--------------------------------------------------------------------------------------------------------------
 def generate_model (w2v_dir, tag, sentences):
-    model = None
-    count = len (sentences)
-    if tag != NULL_WINDOW and count > 0:
-        workers = 16 if count > 1000 else 4
-        model = gensim.models.Word2Vec (sentences, workers=workers)
-        file_name = os.path.join (w2v_dir, "pmc-{0}.w2v".format (tag))
-        print ("  ==== *** ==== Writing model file => {0}".format (file_name))
-        model.save (file_name)
-    return model
-def generate_model (w2v_dir, tag, sentences):
-    model = None
+    result = 0
     if tag != NULL_WINDOW:
-        file_name = os.path.join (w2v_dir, "pmc-{0}.w2v".format (tag))
-        if os.path.exists (file_name):
-            print ("  ====> Skipping existing model: {0}".format (file_name))
-        else:
-            print ("  ==== *** ==== Generating model file => {0}".format (file_name))
-            model = gensim.models.Word2Vec (sentences, workers=16)
-            print ("  ==== *** ==== Writing model file => {0}".format (file_name))
-            model.save (file_name)
-    return model
+        try:
+            file_name = os.path.join (w2v_dir, "pmc-{0}.w2v".format (tag))
+            if os.path.exists (file_name):
+                print ("  ====> Skipping existing model: {0}".format (file_name))
+            else:
+                print ("  ==== *** ==== Generating model file => {0}".format (file_name))
+                model = gensim.models.Word2Vec (sentences, workers=16)
+                print ("  ==== *** ==== Writing model file => {0}".format (file_name))
+                model.save (file_name)
+                result = 1
+        except:
+            print ("Unable to generate model for {0}".format (tag))
+            traceback.print_exc ()
+    return result
 
 #--------------------------------------------------------------------------------------------------------------
 #-- Year models
@@ -71,7 +189,6 @@ def sentences_by_year (a):
         words = [ s.split(' ') for p in a.paragraphs for s in p.sentences ]
         result = ( year, words )
     return result
-    
 
 def write_sentence_slice (output_path, index, v):
     out_file = os.path.join (output_path, "0")
@@ -79,26 +196,6 @@ def write_sentence_slice (output_path, index, v):
     with open (out_file, "w") as stream:
         for sentence in v:
             stream.write ("{0}\n".format (' '.join (sentence)))
-
-def write_year_sentences_worker (sent_dir, p):
-    k = p[0]
-    v = p[1]
-    result = 0
-    if k is not None:
-        output_path = os.path.join (sent_dir, str(k))
-        if os.path.exists (output_path):
-            print ("   skipping output {0}. already exists.".format (output_path))
-        else:
-            os.makedirs (output_path)
-            count = len (v)
-            slice_size = 1000
-            slice_n = int(count / slice_size)
-            remainder = count - slice_size
-            for x in range (0, slice_n):
-                write_sentence_slice (output_path, x, v[x * slice_size : slice_size])
-            write_sentence_slice (output_path, slice_n + 1, v[ slice_n * slice_size : len(v) - 1 ])
-            result = count
-    return result
 
 def generate_year_sentences (articles, model_dir):
     sent_dir = os.path.join (model_dir, "1_year", "sentences")
@@ -110,7 +207,7 @@ def generate_year_sentences (articles, model_dir):
     sentences = sentences.\
                 coalesce(NUM_CLUSTER_NODES).\
                 reduceByKey (lambda x, y: x + y). \
-                map (lambda p : write_year_sentences_worker (sent_dir, p)). \
+                map (lambda p : write_sentences_worker (sent_dir, p)). \
                 sum ()
     print ("Wrote {0} sentences".format (sentences))
 
@@ -131,6 +228,7 @@ def get_windows(seq, n=3):
     for elem in it:
         result = result[1:] + (elem,)
         yield result
+
 def sentences_by_years (a, window):
     result = ( NULL_WINDOW, [] )
     year = a.get_year () if a is not None else None
@@ -139,56 +237,6 @@ def sentences_by_years (a, window):
         items = map (lambda y : str(y), window)
         result = ( '-'.join (items), words )
     return result
-'''
-def generate_span_models0 (articles, model_dir):
-    years = sorted (articles.map (lambda a : a.get_year () if a is not None else None).\
-                    distinct().collect ())
-    three_year_dir = os.path.join (model_dir, "3_year")
-    os.makedirs (three_year_dir)
-
-    windows = get_windows (years)
-    for window in windows:
-        if any (map (lambda w : w is None, window)):
-            continue
-        print ("Window=> {0}".format (window))
-        count = articles.map (lambda a : sentences_by_years (a, window)). \
-                reduceByKey (lambda x, y: x + y). \
-                map (lambda x : generate_model (three_year_dir, x[0], x[1])).count ()
-        print ("Generated {0} 3 year window models: {1}.".format (count, window))
-'''
-
-#---
-def generate_span_sentences (articles, model_dir, timeframe):
-    '''
-    Generate a model for the input articles to the output directory.
-    :param articles List of parsed article objects
-    :type articles: pyspark.rdd.RDD
-    :param model_dir Output directory for models
-    :type model_dir String
-    '''
-    years = sorted (articles.map (lambda a : a.get_year () if a is not None else None).\
-                    distinct().collect ())
-
-    out_dir = os.path.join (model_dir, timeframe)
-    if not os.path.exists (out_dir):
-        os.makedirs (out_dir)
-    sent_dir = os.path.join (out_dir, "sentences")
-
-    windows = get_windows (years)
-    for window in windows:
-        if any (map (lambda w : w is None, window)):
-            continue
-        print ("   --window=> {0}".format (window))
-        window_name = '-'.join ( map (lambda a : str(a), window) )
-        output_path = os.path.join (sent_dir, window_name)
-        if os.path.exists (output_path):
-            print ("Sentences for {0} already exist".format (window_name))
-        else:
-            articles.map (lambda a : sentences_by_years (a, window)). \
-                    reduceByKey (lambda x, y: x + y). \
-                    map (lambda p : p[1]). \
-                    saveAsTextFile ("file://{0}".format (output_path))
-            print ("Generated 3 year window sentences: {0}".format (window_name))
 
 def generate_span_sentences (articles, model_dir, timeframe):
     years = sorted (articles.map (lambda a : a.get_year () if a is not None else None).distinct().collect ())
@@ -206,14 +254,33 @@ def generate_span_sentences (articles, model_dir, timeframe):
         sentences = sentences.\
                     coalesce(NUM_CLUSTER_NODES).\
                     reduceByKey (lambda x, y: x + y). \
-                    map (lambda p : write_year_sentences_worker (sent_dir, p)). \
+                    map (lambda p : write_sentences_worker (sent_dir, p)). \
                     sum ()
         print ("Wrote {0} sentences".format (sentences))
 
-
 #---
-
 # GENERIC
+
+def write_sentences_worker (sent_dir, p):
+    k = p[0]
+    v = p[1]
+    result = 0
+    if k is not None:
+        output_path = os.path.join (sent_dir, str(k))
+        if os.path.exists (output_path):
+            print ("   skipping output {0}. already exists.".format (output_path))
+        else:
+            os.makedirs (output_path)
+            count = len (v)
+            slice_size = 1000
+            slice_n = int(count / slice_size)
+            remainder = count - slice_size
+            for x in range (0, slice_n):
+                write_sentence_slice (output_path, x, v[x * slice_size : slice_size])
+            write_sentence_slice (output_path, slice_n + 1, v[ slice_n * slice_size : len(v) - 1 ])
+            result = count
+    return result
+
 def generate_model_worker (sent_dir, out_dir, tag):
     print ("Generating sentences for: {0}".format (out_dir))
     try:
@@ -224,12 +291,7 @@ def generate_model_worker (sent_dir, out_dir, tag):
         traceback.print_exc ()
 
 def generate_models (sc, model_dir, timeframe):
-    '''
-    Generate a model for the sentence directory to the output directory.
-    :param model_dir Output directory for models
-    :type model_dir String
-    '''
-    out_dir = os.path.join (model_dir, timeframe) # out_dir_name
+    out_dir = os.path.join (model_dir, timeframe)
     if not os.path.exists (out_dir):
         os.makedirs (out_dir)
     sent_dir = os.path.join (out_dir, "sentences")
@@ -263,19 +325,18 @@ def generate_month_sentences (articles, model_dir):
     sentences = sentences.\
                 coalesce(NUM_CLUSTER_NODES).\
                 reduceByKey (lambda x, y: x + y). \
-                map (lambda p : write_year_sentences_worker (sent_dir, p)). \
+                map (lambda p : write_sentences_worker (sent_dir, p)). \
                 sum ()
     print ("Wrote {0} sentences".format (sentences))
-
-
 
 #-------------------------
 def build_models (conf):
     root = os.path.dirname (conf.input_dir)
     model_dir = os.path.join (root, "w2v", "gensim")
-    limit=5000000
-    ct2 = CT2.from_conf (conf, limit=limit)
+    limit=500000#0
+#    ct2 = CT2.from_conf (conf, limit=limit)
 
+    '''
     timeframe = "1_year"
     generate_year_sentences (ct2.articles, model_dir)
     generate_models (ct2.sc, model_dir, timeframe)
@@ -287,11 +348,11 @@ def build_models (conf):
     timeframe = "month"
     generate_month_sentences (ct2.articles, model_dir)
     generate_models (ct2.sc, model_dir, timeframe)
-    
+    '''
 
-
-
-
+    sc = SparkUtil.get_spark_context (conf.spark_conf)
+    file_list = "/projects/stars/app/chemotext/filelist.json"
+    build_year_models (sc, conf.input_dir, file_list, model_dir)
 
 def main ():
     '''
@@ -317,47 +378,3 @@ def main ():
     build_models (conf)
  
 main ()
-
-'''
-https://github.com/joblib/joblib/issues/122
-
-
-16/10/20 11:37:59 ERROR Executor: Exception in task 0.0 in stage 1.2 (TID 359)
-org.apache.spark.api.python.PythonException: Traceback (most recent call last):
-  File "/scratch/mesos/slaves/20160711-145321-1946687916-5050-30249-S132114/frameworks/20160711-145321-1946687916-5050-30249-0518/executors/3/runs/4e72994f-4b97-4bdc-97e4-28163646eb6e/spark-1.6.0-bin-hadoop2.6/python/lib/pyspark.zip/pyspark/worker.py", line 111, in main
-    process()
-  File "/scratch/mesos/slaves/20160711-145321-1946687916-5050-30249-S132114/frameworks/20160711-145321-1946687916-5050-30249-0518/executors/3/runs/4e72994f-4b97-4bdc-97e4-28163646eb6e/spark-1.6.0-bin-hadoop2.6/python/lib/pyspark.zip/pyspark/worker.py", line 106, in process
-    serializer.dump_stream(func(split_index, iterator), outfile)
-  File "/projects/stars/stack/spark/current/python/lib/pyspark.zip/pyspark/rdd.py", line 2346, in pipeline_func
-  File "/projects/stars/stack/spark/current/python/lib/pyspark.zip/pyspark/rdd.py", line 2346, in pipeline_func
-  File "/projects/stars/stack/spark/current/python/lib/pyspark.zip/pyspark/rdd.py", line 2346, in pipeline_func
-  File "/projects/stars/stack/spark/current/python/lib/pyspark.zip/pyspark/rdd.py", line 2346, in pipeline_func
-  File "/projects/stars/stack/spark/current/python/lib/pyspark.zip/pyspark/rdd.py", line 317, in func
-  File "/projects/stars/stack/spark/current/python/lib/pyspark.zip/pyspark/rdd.py", line 1784, in _mergeCombiners
-  File "/scratch/mesos/slaves/20160711-145321-1946687916-5050-30249-S132114/frameworks/20160711-145321-1946687916-5050-30249-0518/executors/3/runs/4e72994f-4b97-4bdc-97e4-28163646eb6e/spark-1.6.0-bin-hadoop2.6/python/lib/pyspark.zip/pyspark/shuffle.py", line 287, in mergeCombiners
-    self._spill()
-  File "/scratch/mesos/slaves/20160711-145321-1946687916-5050-30249-S132114/frameworks/20160711-145321-1946687916-5050-30249-0518/executors/3/runs/4e72994f-4b97-4bdc-97e4-28163646eb6e/spark-1.6.0-bin-hadoop2.6/python/lib/pyspark.zip/pyspark/shuffle.py", line 315, in _spill
-    self.serializer.dump_stream([(k, v)], streams[h])
-  File "/scratch/mesos/slaves/20160711-145321-1946687916-5050-30249-S132114/frameworks/20160711-145321-1946687916-5050-30249-0518/executors/3/runs/4e72994f-4b97-4bdc-97e4-28163646eb6e/spark-1.6.0-bin-hadoop2.6/python/lib/pyspark.zip/pyspark/serializers.py", line 267, in dump_stream
-    bytes = self.serializer.dumps(vs)
-  File "/scratch/mesos/slaves/20160711-145321-1946687916-5050-30249-S132114/frameworks/20160711-145321-1946687916-5050-30249-0518/executors/3/runs/4e72994f-4b97-4bdc-97e4-28163646eb6e/spark-1.6.0-bin-hadoop2.6/python/lib/pyspark.zip/pyspark/serializers.py", line 487, in dumps
-    return zlib.compress(self.serializer.dumps(obj), 1)
-OverflowError: size does not fit in an int
-
-at org.apache.spark.api.python.PythonRunner$$anon$1.read(PythonRDD.scala:166)
-at org.apache.spark.api.python.PythonRunner$$anon$1.<init>(PythonRDD.scala:207)
-at org.apache.spark.api.python.PythonRunner.compute(PythonRDD.scala:125)
-at org.apache.spark.api.python.PythonRDD.compute(PythonRDD.scala:70)
-at org.apache.spark.rdd.RDD.computeOrReadCheckpoint(RDD.scala:306)
-at org.apache.spark.rdd.RDD.iterator(RDD.scala:270)
-at org.apache.spark.scheduler.ResultTask.runTask(ResultTask.scala:66)
-at org.apache.spark.scheduler.Task.run(Task.scala:89)
-at org.apache.spark.executor.Executor$TaskRunner.run(Executor.scala:213)
-at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1145)
-at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:615)
-at java.lang.Thread.run(Thread.java:745)
-'''
-
-#    with open ("out.txt", "w") as stream:
-#        stream.write ("sentence_by_year keys: {0}".format (sent_by_year.map(lambda sy : sy[0]).collect ()))
-
