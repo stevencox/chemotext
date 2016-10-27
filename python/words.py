@@ -28,6 +28,7 @@ logger = LoggingUtil.init_logging (__file__)
 #--------------------------------------------------------------------------------------------------------------
 #-- An iterator for sentences in files in an arbitrary directory.
 #--------------------------------------------------------------------------------------------------------------
+'''
 class SentenceGenerator(object):
     def __init__(self, dir_name):
         self.dir_name = dir_name
@@ -36,13 +37,13 @@ class SentenceGenerator(object):
             for line in open(os.path.join(self.dir_name, fname)):
                 print ("generate sentence... {0}".format (line))
                 yield line.split()
-
+'''
 class ArticleSentenceGenerator(object):
     def __init__(self, input_dir, file_list):
         self.input_dir = input_dir
         with open (file_list) as stream:
             self.files = json.loads (stream.read ())
-            print ("================> sentence generator. filelist: {0}".format (len (self.files)))
+            print ("   ==> sentence generator. filelist: {0}".format (len (self.files)))
     def fix_path (self, path):
         base = "{0}.json".format (os.path.basename (path))
         return os.path.join(self.input_dir, base)
@@ -81,6 +82,7 @@ class MonthArticleSentenceGenerator (ArticleSentenceGenerator):
     def match (self, article_path):
         return self.text in article_path
 
+'''
 def generate_year_model (in_dir, file_list, out_dir, year):
     result = 0
     try:
@@ -89,6 +91,7 @@ def generate_year_model (in_dir, file_list, out_dir, year):
     except:
         traceback.print_exc ()
     return result
+
 def generate_span_model (in_dir, file_list, out_dir, years):
     result = 0
     try:
@@ -97,6 +100,7 @@ def generate_span_model (in_dir, file_list, out_dir, years):
     except:
         traceback.print_exc ()
     return result
+
 def generate_month_model (in_dir, file_list, out_dir, year, month):
     result = 0
     try:
@@ -105,35 +109,17 @@ def generate_month_model (in_dir, file_list, out_dir, year, month):
     except:
         traceback.print_exc ()
     return result
+'''
 
-def build_year_models (sc, in_dir, file_list, out_dir):
-    '''
-    years = []
-    for y in range (1900, datetime.datetime.now().year):
-        years.append (y)
-
-    months = [ ]
-    for y in years:
-        for m in range (1, 12):
-            months.append ( ( y, m ) )
-    '''
-
+def build_all_models (sc, in_dir, file_list, out_dir):
     years = [ y for y in range (1900, datetime.datetime.now().year) ]
     months = [ ( y, m ) for y in years for m in range (1, 12) ]
     windows = get_windows (years)
-    composite = [ ( "year", y ) for y in years ] + \
-                [ ( "month", m ) for m in months ] + \
-                [ ( "span", s ) for s in windows ]
-    '''
-    composite = []
-    for y in years:
-        composite.append ( ( "year", y ) )
-    for w in windows:
-        composite.append ( ( "span", w ) )
-    for m in months:
-        composite.append ( ( "month", m ) )
-    '''
-    models = sc.parallelize (composite, numSlices=200). \
+    composite = [ ( "year",  y ) for y in years   ] + \
+                [ ( "month", m ) for m in months  ] + \
+                [ ( "span",  s ) for s in windows ]
+    ''' broadcast file_list '''
+    models = sc.parallelize (composite, numSlices=160). \
              map (lambda c : generate_model_dynamic (in_dir, file_list, out_dir, c)). \
              filter (lambda c : c is not None).\
              sum ()
@@ -146,16 +132,26 @@ def get_model_dir (out_dir, element_type):
 
 def generate_model_dynamic (in_dir, file_list, out_dir, element):
     result = 0
-    element_type = element [0]
-    print ("Element -> {0}".format (element_type))
-    model_dir = get_model_dir (out_dir, element_type)
-    if element_type == "year":
-        result = generate_year_model (in_dir, file_list, model_dir, element[1])
-    elif element_type == "span":
-        result = generate_span_model (in_dir, file_list, model_dir, element[1])
-    elif element_type == "month":
-        pair = element [1]
-        result = generate_month_model (in_dir, file_list, model_dir, pair[0], pair[1])
+    try:
+        element_type = element [0]
+        print ("Element -> {0}".format (element_type))
+        model_dir = get_model_dir (out_dir, element_type)
+        if element_type == "year":
+            year = element [1]
+            result = generate_model (out_dir, tag = str(year),
+                                     sentences = YearArticleSentenceGenerator (in_dir, file_list, year))
+        elif element_type == "span":
+            years = element[1]
+            result = generate_model (out_dir, tag = '-'.join (map(lambda y : str(y), years)),
+                                     sentences = YearSpanArticleSentenceGenerator (in_dir, file_list, years))
+        elif element_type == "month":
+            pair = element [1]
+            year = pair [0]
+            month = pair [1]
+            result = generate_model (out_dir, tag = "{0}-{1}".format (year, month),
+                                     sentences = MonthArticleSentenceGenerator (in_dir, file_list, year, month))
+        except:
+            traceback.print_exc ()
     return result
 
 #--------------------------------------------------------------------------------------------------------------
@@ -182,6 +178,7 @@ def generate_model (w2v_dir, tag, sentences):
 #--------------------------------------------------------------------------------------------------------------
 #-- Year models
 #--------------------------------------------------------------------------------------------------------------
+'''
 def sentences_by_year (a):
     result = ( NULL_WINDOW, [] )
     year = a.get_year () if a is not None else None
@@ -210,10 +207,12 @@ def generate_year_sentences (articles, model_dir):
                 map (lambda p : write_sentences_worker (sent_dir, p)). \
                 sum ()
     print ("Wrote {0} sentences".format (sentences))
+'''
 
 #--------------------------------------------------------------------------------------------------------------
 #-- Windowed models
 #--------------------------------------------------------------------------------------------------------------
+'''
 NULL_WINDOW = 0
 MIN_PUB_YEAR = 1800
 NUM_CLUSTER_NODES=6
@@ -257,10 +256,10 @@ def generate_span_sentences (articles, model_dir, timeframe):
                     map (lambda p : write_sentences_worker (sent_dir, p)). \
                     sum ()
         print ("Wrote {0} sentences".format (sentences))
-
+'''
 #---
 # GENERIC
-
+'''
 def write_sentences_worker (sent_dir, p):
     k = p[0]
     v = p[1]
@@ -301,10 +300,11 @@ def generate_models (sc, model_dir, timeframe):
            map (lambda t : generate_model_worker (os.path.join (sent_dir, t),
                                                   out_dir,
                                                   t)).count ()
-
+'''
 #--------------------------------------------------------------------------------------------------------------
 #-- Month models
 #--------------------------------------------------------------------------------------------------------------
+'''
 def sentences_by_month (a):
     result = ( NULL_WINDOW, [] )
     key = a.get_month_year () if a is not None else None
@@ -328,7 +328,7 @@ def generate_month_sentences (articles, model_dir):
                 map (lambda p : write_sentences_worker (sent_dir, p)). \
                 sum ()
     print ("Wrote {0} sentences".format (sentences))
-
+'''
 #-------------------------
 def build_models (conf):
     root = os.path.dirname (conf.input_dir)
@@ -336,23 +336,9 @@ def build_models (conf):
     limit=500000#0
 #    ct2 = CT2.from_conf (conf, limit=limit)
 
-    '''
-    timeframe = "1_year"
-    generate_year_sentences (ct2.articles, model_dir)
-    generate_models (ct2.sc, model_dir, timeframe)
-
-    timeframe = "3_year"
-    generate_span_sentences (ct2.articles, model_dir, timeframe)
-    generate_models (ct2.sc, model_dir, timeframe)
-
-    timeframe = "month"
-    generate_month_sentences (ct2.articles, model_dir)
-    generate_models (ct2.sc, model_dir, timeframe)
-    '''
-
     sc = SparkUtil.get_spark_context (conf.spark_conf)
     file_list = "/projects/stars/app/chemotext/filelist.json"
-    build_year_models (sc, conf.input_dir, file_list, model_dir)
+    build_all_models (sc, conf.input_dir, file_list, model_dir)
 
 def main ():
     '''
