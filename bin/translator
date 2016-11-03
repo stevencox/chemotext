@@ -1,0 +1,32 @@
+#!/bin/bash
+
+#https://spark-packages.org/package/graphframes/graphframes
+# mvn org.apache.maven.plugins:maven-dependency-plugin:2.1:get -Dartifact=org.slf4j:slf4j-api:1.7.7 -DrepoUrl=central::default::http://repo1.maven.apache.org/maven2
+
+source /projects/stars/stack/spark/spark2/conf/spark-env.sh
+JARS_HOME=/projects/stars/stack/spark/jars
+PROXY_SETTINGS='--conf "spark.driver.extraJavaOptions=-Dhttp.proxyHost=gateway.ad.renci.org -Dhttp.proxyPort=8080 -Dhttps.proxyHost=gateway.ad.renci.org -Dhttps.proxyPort=8080" '
+EXTRA_JAVA_OPTS="-Dhttp.proxyHost=gateway.ad.renci.org -Dhttp.proxyPort=8080 -Dhttps.proxyHost=gateway.ad.renci.org -Dhttps.proxyPort=8080"
+
+spark () {
+    $SPARK_HOME/bin/spark-shell  \
+	--conf "spark.neo4j.bolt.url=bolt://chemotext.mml.unc.edu" \
+	--conf "spark.neo4j.bolt.password=" \
+	--conf "spark.driver.extraJavaOptions=${EXTRA_JAVA_OPTS}" \
+	--packages "graphframes:graphframes:0.2.0-spark2.0-s_2.11,neo4j-contrib:neo4j-spark-connector:2.0.0-M2" \
+	$*
+#	--py-files $JARS_HOME/graphframes-0.2.0-spark2.0-s_2.11.jar
+}
+pyspark () {
+    $SPARK_HOME/bin/pyspark \
+	--conf "spark.driver.extraJavaOptions=${EXTRA_JAVA_OPTS}" \
+	--packages "graphframes:graphframes:0.2.0-spark2.0-s_2.11,neo4j-contrib:neo4j-spark-connector:2.0.0-M2" \
+	--py-files $JARS_HOME/graphframes-0.2.0-spark2.0-s_2.11.jar \
+	$*
+}
+
+query_chemotext () {
+    spark $*
+}
+
+query_chemotext $*

@@ -108,7 +108,7 @@ def get_model_dir (out_dir, element_type):
         os.makedirs (model_dir)
     return model_dir
 
-def should_generate (out_dir, element):
+def should_generate (out_dir, model_type, mode, data):
     """ Determine if the model indicated by the element arg exists or should be generated.
 
     Args:
@@ -118,17 +118,17 @@ def should_generate (out_dir, element):
     Returns:
         bool: Whether or not we should generate the model for this element.
     """
-    t, v = element
-    model_dir = get_model_dir (out_dir, t)
+    model_dir = get_model_dir (out_dir, model_type)
+    prefix = "pmc" if mode == "word" else "pmc-bigram"
     file_name = None
-    if t == "year":
-        file_name = os.path.join (model_dir, "pmc-{0}.w2v".format (v))
-    elif t == "cumulative":
-        file_name = os.path.join (model_dir, "pmc-{0}.w2v".format (v))
-    elif t == "span":
-        file_name = os.path.join (model_dir, "pmc-{0}.w2v".format ('-'.join (map (lambda i : str(i), v))))
-    elif t == "month":
-        file_name = os.path.join (model_dir, "pmc-{0}-{1}.w2v".format (v[0], v[1]))
+    if model_type == "year":
+        file_name = os.path.join (model_dir, "{0}-{1}.w2v".format (prefix, data))
+    elif model_type == "cumulative":
+        file_name = os.path.join (model_dir, "{0}-{1}.w2v".format (prefix, data))
+    elif model_type == "span":
+        file_name = os.path.join (model_dir, "{0}-{1}.w2v".format (prefix, '-'.join (map (lambda i : str(i), data))))
+    elif model_type == "month":
+        file_name = os.path.join (model_dir, "{0}-{1}-{2}.w2v".format (prefix, data[0], data[1]))
     exists = os.path.exists (file_name)
     print ("exists ({0}) -> {1}".format (exists, file_name))
     return not exists
@@ -156,82 +156,106 @@ def build_all_models (sc, in_dir, file_list, out_dir):
     years   = [ y for y in range (1900, datetime.datetime.now().year + 1) ]
     months  = [ ( y, m ) for y in years for m in range (1, 12 + 1) ]
     windows = get_windows (years)
+    composite_elements = [ ( "year",       "word",   y ) for y in years   ] + \
+                         [ ( "cumulative", "word",   y ) for y in years   ] + \
+                         [ ( "month",      "word",   m ) for m in months  ] + \
+                         [ ( "span",       "word",   s ) for s in windows ] + \
+                         [ ( "year",       "bigram", y ) for y in years   ] + \
+                         [ ( "cumulative", "bigram", y ) for y in years   ] + \
+                         [ ( "month",      "bigram", m ) for m in months  ] + \
+                         [ ( "span",       "bigram", s ) for s in windows ]
 
-    composite = filter (lambda e : should_generate (out_dir, e),
-                        [ ( "year",       y ) for y in years   ] + \
-                        [ ( "cumulative", y ) for y in years   ] + \
-                        [ ( "month",      m ) for m in months  ] + \
-                        [ ( "span",       s ) for s in windows ])
+    
+    composite = filter (lambda e : should_generate (out_dir = out_dir, \
+                                                    model_type = e[0], \
+                                                    mode = e[1],       \
+                                                    data = e[2]),      \
+                        composite_elements)
 
     print ("composite =====> {0}".format (composite))
     random.shuffle (composite)
 
     model_count = sc.parallelize (composite, numSlices=360). \
-                  map (lambda c : generate_model_dynamic (in_dir, file_list, out_dir, c)). \
+                  map (lambda c : generate_model_dynamic (in_dir = in_dir, file_list = file_list, out_dir = out_dir, \
+                                                          element_type = c[0],   \
+                                                          mode         = c[1],   \
+                                                          data         = c[2])). \
                   filter (lambda c : c is not None). \
                   sum ()
 
     print ("Generated {0} models.".format (model_count))
 
-def generate_model_dynamic (in_dir, file_list, out_dir, element):
+def generate_model_dynamic (in_dir, file_list, out_dir, element_type, mode, data):
     """ Generate a model based on the input element.
 
     Args:
         out_dir (str): Path to the top level model output directory.
         element_type (str): Type of model to generate.
+        mode (str) : Mode to generate 
+        data : data
 
     Returns:
         int: Number of models generated (0/1)
     """
     result = 0
     try:
-        element_type = element [0]
         print ("Element -> {0}".format (element_type))
         model_dir = get_model_dir (out_dir, element_type)
         if element_type == "year":
-            year = element [1]
-            result = generate_model (model_dir, tag = str(year),
-                                     sentences = YearArticleSentenceGenerator (in_dir, file_list, year))
+            result = generate_model (model_dir, tag = str(data),
+                                     sentences = YearArticleSentenceGenerator (in_dir, file_list, data),
+                                     mode = mode)
         elif element_type == "cumulative":
-            year = element [1]
-            result = generate_model (model_dir, tag = str(year),
-                                     sentences = CumulativeYearArticleSentenceGenerator (in_dir, file_list, year))
+            result = generate_model (model_dir, tag = str(data),
+                                     sentences = CumulativeYearArticleSentenceGenerator (in_dir, file_list, data),
+                                     mode = mode)
         elif element_type == "span":
-            years = element[1]
-            result = generate_model (model_dir, tag = '-'.join (map(lambda y : str(y), years)),
-                                     sentences = YearSpanArticleSentenceGenerator (in_dir, file_list, years))
+            result = generate_model (model_dir, tag = '-'.join (map(lambda y : str(y), data)),
+                                     sentences = YearSpanArticleSentenceGenerator (in_dir, file_list, data),
+                                     mode = mode)
         elif element_type == "month":
-            pair = element [1]
-            year = pair [0]
-            month = pair [1]
+            year = data [0]
+            month = data [1]
             result = generate_model (model_dir, tag = "{0}-{1}".format (year, month),
-                                     sentences = MonthArticleSentenceGenerator (in_dir, file_list, year, month))
+                                     sentences = MonthArticleSentenceGenerator (in_dir, file_list, year, month),
+                                     mode = mode)
     except:
         traceback.print_exc ()
     return result
 
-def generate_model (w2v_dir, tag, sentences):
+def form_file_name (out_dir, mode, tag):
+    prefix = "pmc" if mode == "word" else "pmc-bigram"
+    return os.path.join (out_dir, "{0}-{1}.w2v".format (prefix, tag))
+    # for f in $(find /projects/stars/var/chemotext/w2v/gensim/ -name "*bigram*" -print); do echo mv $f $(echo $f | sed -e "s,bigram,pmc-bigram,g"); done
+
+def generate_model (w2v_dir, tag, sentences, mode):
     """ Run Gensim word2vec on a set of sentences and write a model.
 
     Args:
         w2v_dir (str): Path to the model output directory.
         tag (str):     Time span identifier to incoporate into the output file name.
         sentences (ArticleSentenceGenerator): A iterable of sentences.
+        mode (str): Generate for words or bigrams
 
     Returns:
         int: Number of models generated (0/1)
     """
     result = 0
     try:
-        file_name = os.path.join (w2v_dir, "pmc-{0}.w2v".format (tag))
+        file_name = form_file_name (w2v_dir, mode, tag)
         if os.path.exists (file_name):
             print ("  ====> Skipping existing model: {0}".format (file_name))
         else:
             print ("  ==== *** ==== Generating model file => {0}".format (file_name))
-            model = gensim.models.Word2Vec (sentences, workers=16)
-            print ("  ==== *** ==== Writing model file => {0}".format (file_name))
-            model.save (file_name)
-            result = 1
+            if mode == "word":
+                model = gensim.models.Word2Vec (sentences, workers=16)
+            elif mode == "bigram":
+                bigram_transformer = gensim.models.Phrases(sentences)
+                model = gensim.models.Word2Vec(bigram_transformer[sentences], workers=16)
+            if model:
+                print ("  ==== *** ==== Writing model file => {0}".format (file_name))
+                model.save (file_name)
+                result = 1
     except:
         print ("Unable to generate model for {0}".format (tag))
         traceback.print_exc ()
