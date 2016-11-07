@@ -15,7 +15,6 @@ spark () {
 	--conf "spark.driver.extraJavaOptions=${EXTRA_JAVA_OPTS}" \
 	--packages "graphframes:graphframes:0.2.0-spark2.0-s_2.11,neo4j-contrib:neo4j-spark-connector:2.0.0-M2" \
 	$*
-#	--py-files $JARS_HOME/graphframes-0.2.0-spark2.0-s_2.11.jar
 }
 pyspark () {
     $SPARK_HOME/bin/pyspark \
@@ -28,5 +27,10 @@ pyspark () {
 query_chemotext () {
     spark $*
 }
+gframe () {
+    pyspark $*
+}
 
-query_chemotext $*
+#query_chemotext $*
+
+gframe $*
