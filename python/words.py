@@ -28,12 +28,13 @@ from itertools import islice
 
 logger = LoggingUtil.init_logging (__file__)
 
-#--------------------------------------------------------------------------------------------------------------
-#-- An iterator for sentences in files in an arbitrary directory.
-#--------------------------------------------------------------------------------------------------------------
 class ArticleSentenceGenerator(object):
     """
     Scalably generate a set of sentences from preprocessed articles.
+    To be scalable, Gensim needs to read sentences in a stream, rather than attempting to read them all into
+    memory at once. To do this, we create an iterable object to read sentences from our data source. In our
+    case, that's JSON files created for each parsed article. We create a set of sub-classes to read specific
+    subsets of these JSON objects to implement word embedding models based on a variety of timeframes.
     """
     def __init__(self, input_dir, file_list):        
         self.input_dir = input_dir
@@ -56,8 +57,21 @@ class ArticleSentenceGenerator(object):
         return True
 
 class MonthArticleSentenceGenerator (ArticleSentenceGenerator):
-    """ Generate sentences by month represented as a year and month"""
+    """
+    Generate sentences by month represented as a year and month.
+    """
     def __init__(self, input_dir, file_list, year, month, depth=1): 
+        """
+        This can be used to flexibly collect N months of sentences ending at
+        the specified year and month.
+
+        Args:
+            input_dir (str): Input directory of files.
+            file_list (str): List of files to use.
+            year (int): End year
+            month (int): End month
+            depth (int): Number of months of history to include. Default: 1
+        """
         ArticleSentenceGenerator.__init__ (self, input_dir, file_list)
         self.tags = map (lambda d : self.get_month_tag (d),
                          [ date (year  = year - int(depth/12) + int(d/12),
@@ -65,16 +79,13 @@ class MonthArticleSentenceGenerator (ArticleSentenceGenerator):
                                  day   = 1) for d in range (month, month + depth) ])
 
     def get_month_tag (self, d):
+        """ Create a tag for matching a PubMed Central filename. """
         month_name = calendar.month_name [d.month][0:3]
         return "_{0}_{1}_".format (d.year, month_name)
 
     def match (self, article_path):
+        """ Determine if an article matches our criteria. """
         return any (map (lambda tag : tag in article_path, self.tags))
-
-class YearArticleSentenceGenerator (ArticleSentenceGenerator):
-    """ Generate sentences grouped by year """
-    def __init__(self, input_dir, file_list, year):
-        MonthArticleSentenceGenerator.__init__ (self, input_dir, file_list, year, month=1, depth=12)
 
 class CumulativeYearArticleSentenceGenerator (ArticleSentenceGenerator):
     """ Generate all sentences from the corpus up to the specified year """
@@ -89,29 +100,7 @@ class CumulativeYearArticleSentenceGenerator (ArticleSentenceGenerator):
                 break
         return matches
 
-class YearSpanArticleSentenceGenerator (ArticleSentenceGenerator):
-    """ Generate sentences grouped by a set of years """
-    def __init__(self, input_dir, file_list, years):
-        ArticleSentenceGenerator.__init__ (self, input_dir, file_list)
-        self.years = years
-    def match (self, article_path):
-        return any (map (lambda y : "_{0}_".format (y) in article_path, self.years) )
-
-def get_model_dir (out_dir, element_type):
-    """ Constructs an output model directory path and creates the directory if it does not exist.
-
-    Args:
-        out_dir (str): Path to the top level model output directory.
-        element_type (str): Type of model to generate.
-
-    Returns:
-        str: Path to the output model directory.
-    """
-    model_dir = os.path.join (out_dir, element_type)
-    if not os.path.exists (model_dir):
-        os.makedirs (model_dir)
-    return model_dir
-
+''' File name patterns for supported model types. '''
 tag_pattern = {
     "year"       : "type-{0}-{1}.w2v",
     "2year"      : "type-{0}-{1}.w2v",
@@ -121,31 +110,31 @@ tag_pattern = {
     "cumulative" : "type-{0}.w2v"
 }
 
+''' Map of filename patterns for model modes. '''
 mode_filename = {
     "word"   : dict(map(lambda (k,v): (k, v.replace ("type", "pmc")), tag_pattern.iteritems())),
     "bigram" : dict(map(lambda (k,v): (k, v.replace ("type", "bigram")), tag_pattern.iteritems()))
 }
 
 def get_file_name (out_dir, model_type, mode, data):
-    model_dir = get_model_dir (out_dir, model_type)
+    '''
+    Get a file name given the model type, mode, and data.
+
+    Args:
+        out_dir (str): Path to generate models to.
+        model_type (str): A supported model timeframe (must be a key in tag_pattern)
+        mode (str): Controls use of word or phrase mode of the word2vec model.
+        data (tuple/int): Type dependent representation of timeframe.
+
+    Returns:
+        A file name for the model to generate.
+    '''
+    model_dir = os.path.join (out_dir, model_type)
+    if not os.path.exists (model_dir):
+        os.makedirs (model_dir)
     pattern = mode_filename [mode][model_type]
     formatted_data = pattern.format (*data) if isinstance (data, list) or isinstance(data, tuple) else pattern.format (data)
     return os.path.join (model_dir, formatted_data)
-
-def should_generate (out_dir, model_type, mode, data):
-    """ Determine if the model indicated by the element arg exists or should be generated.
-
-    Args:
-        out_dir (str): Path to the top level model output directory.
-        element (type,value): Tuple of element type to value.
-
-    Returns:
-        bool: Whether or not we should generate the model for this element.
-    """
-#    if mode == "bigram":
-#        return False
-    file_name = get_file_name (out_dir, model_type, mode, data)
-    return os.path.exists (file_name)
 
 def build_all_models (sc, in_dir, file_list, out_dir):
     """ Builds all word2vec models.
@@ -159,9 +148,9 @@ def build_all_models (sc, in_dir, file_list, out_dir):
         sc (SparkContext): An Apache Spark context object.
         in_dir (str): A directory of JSON formatted articles.
         file_list (str): File name of a JSON array of article file names.
+        out_dir (str): Directory to generate models to.
 
     Todo:
-        * Partition work to avoid queues of big jobs being serilized.
         * List file list dynamically directly from the input directory.
         * Broadcast the file list so that jobs don't recreate it.
     Raises:
@@ -170,40 +159,52 @@ def build_all_models (sc, in_dir, file_list, out_dir):
     years   = [ y for y in range (1900, datetime.datetime.now().year + 1) ]
     months  = [ ( y, m ) for y in years for m in range (1, 12 + 1) ]
     windows = get_windows (years)
-    composite_elements = \
-                         [ ( "year",       "word",   m ) for m in months  ] + \
+
+    ''' Generate parameters for all word level models '''
+    composite_elements = [ ( "year",       "word",   m ) for m in months  ] + \
                          [ ( "2year",      "word",   m ) for m in months  ] + \
                          [ ( "3year",      "word",   m ) for m in months  ] + \
-                         \
                          [ ( "month",      "word",   m ) for m in months  ] + \
                          [ ( "2month",     "word",   m ) for m in months  ] + \
-                         \
                          [ ( "cumulative", "word",   y ) for y in years   ]
-    composite_elements = composite_elements + map (lambda t : (t[0], "bigram", t[2]), composite_elements)
-    composite = filter (lambda e : should_generate (out_dir    = out_dir,
-                                                    model_type = e[0],
-                                                    mode       = e[1],
-                                                    data       = e[2]),
-                        composite_elements)
-    random.shuffle (composite)
-    print ("models: {0}".format (composite))
-    print ("Generating {0} w2v models.".format (len(composite)))
-    model_count = sc.parallelize (composite, numSlices=360). \
-                  map (lambda c : generate_model (file_name = get_file_name (out_dir,
-                                                                             model_type=c[0],
-                                                                             mode=c[1],
-                                                                             data=c[2]),
-                                                  sentences = sentence_gen [c[0]](in_dir, file_list, c[2]))). \
-                  filter (lambda c : c is not None). \
-                  sum ()
-    print ("Generated {0} models.".format (model_count))
 
+    ''' Extend to include permutations with bigram phrase models. '''
+    composite_elements = composite_elements + map (lambda t : (t[0], "bigram", t[2]), composite_elements)
+
+    ''' Remove any parameters corresponding to existing files. '''
+    composite = filter (lambda e : not os.path.exists (get_file_name (out_dir, e[0], e[1], e[2])),
+                        composite_elements)
+
+    if len(composite) == 0:
+        print ("Models corresponding to all parameters already exist at {0}".format (out_dir))
+    else:
+        print ("Generating {0} w2v models.".format (len(composite)))
+
+        '''
+        Shuffle parameters to avoid queus of long running models on one executor.
+        Distribute all randomized parameters across all partitions. Invoke generate model for each. 
+        Dynamically construct an appropriate streaming sentence iterator for each based on its type.
+        '''
+        random.shuffle (composite)
+        model_count = sc.parallelize (composite, numSlices=360). \
+                      map (lambda c : generate_model (file_name = get_file_name (out_dir,
+                                                                                 model_type=c[0],
+                                                                                 mode=c[1],
+                                                                                 data=c[2]),
+                                                      sentences = sentence_gen [c[0]](in_dir, file_list, c[2]))). \
+                      filter (lambda c : c is not None). \
+                      sum ()
+        print ("Generated {0} models.".format (model_count))
+
+''' A map of functions to generate scalable sentence iterators based on type of model to generate. '''
 sentence_gen = {
-    "year"       : lambda i,f,d : MonthArticleSentenceGenerator (input_dir=i, file_list=f, year=d[0],   month=d[1], depth=12),
+    "year"       : lambda i,f,d : MonthArticleSentenceGenerator (input_dir=i, file_list=f, year=d[0],   month=d[1], depth=1 * 12),
     "2year"      : lambda i,f,d : MonthArticleSentenceGenerator (input_dir=i, file_list=f, year=d[0],   month=d[1], depth=2 * 12),
     "3year"      : lambda i,f,d : MonthArticleSentenceGenerator (input_dir=i, file_list=f, year=d[0],   month=d[1], depth=3 * 12),
+
     "month"      : lambda i,f,d : MonthArticleSentenceGenerator (input_dir=i, file_list=f, year=d[0],   month=d[1], depth=1),
     "2month"     : lambda i,f,d : MonthArticleSentenceGenerator (input_dir=i, file_list=f, year=d[0],   month=d[1], depth=2),
+
     "cumulative" : lambda i,f,d : CumulativeYearArticleSentenceGenerator (input_dir=i, file_list=f, year=d)
 }
 
