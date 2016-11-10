@@ -47,10 +47,19 @@ def process_models (sc, in_dir, model_dir, out_dir):
     print ("Processed {0} vectors.".format (vector_count))
 
 def process_chunk (in_dir, out_dir, file_name, time_frame):
+    """
+    Process a chunk of the model, annotating each vector with term cosine similarity
+    derived from a precomputed word embedding model.
+    Args:
+        in_dir (str): Input directory for computed word embedding models
+        out_dir (str): Output directory for annotated model chunks
+        file_name (str): Name of the chunk of model to process
+        time_frame (str): Model timeframe    
+    """
     line_count = 0
     try:
         w2v_dir = os.path.join (in_dir, "w2v", "gensim", time_frame)
-        w2v_model_paths = glob.glob (os.path.join (w2v_dir, "pmc-2016*.w2v"))
+        w2v_model_paths = glob.glob (os.path.join (w2v_dir, "pmc-2009*.w2v"))
         model_path = w2v_model_paths [0]
         print ("Loading model: {0}...".format (model_path))
         start = time.time ()
@@ -62,29 +71,25 @@ def process_chunk (in_dir, out_dir, file_name, time_frame):
             with open (out_file, "w") as out_stream:
                 for line in in_stream:
                     try:
-                        print ("line -> {0}".format (line))
-                        vector = line.split (",")
+                        vector = line.rstrip().split (",")
                         entity_a = vector [1].lower ()
                         entity_b = vector [2].lower ()
                         if entity_a in w2v.vocab and entity_b in w2v.vocab:
-                            print (" eA: {0} eB: {1}".format (entity_a, entity_b))
                             similarity = w2v.similarity (entity_a, entity_b)
-                            vector.append (similarity)
+                            vector.append (str(similarity))
                             out_line = "{0}\n".format (",".join (vector))
                             out_stream.write (out_line)
+                            print (" (eA={0}, eB={1}) sim: {2}".format (entity_a, entity_b, similarity))
                             line_count = line_count + 1
                     except:
-                        traceback.print_exc ()
-        
+                        traceback.print_exc ()        
     except:
-        print ("---exc")
         traceback.print_exc ()
-    time.sleep (10)
     return line_count
                                                                              
 def main ():
     """
-    Tools for running word2vec on the corpus.
+    Annotate model files with word embedding computed cosine similarity.
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("--host",   help="Mesos master host")
