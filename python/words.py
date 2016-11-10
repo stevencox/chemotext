@@ -1,10 +1,9 @@
-#--------------------------------------------------------------------------------------------------------------
-#-  @author: Steve Cox
-#-  
-#-  Creates word2vec models of pubmed central full text articles. Uses gensim word2vec.
-#-
-#-  Google Doc String: http://sphinxcontrib-napoleon.readthedocs.io/en/latest/index.html
-#--------------------------------------------------------------------------------------------------------------
+"""
+@author: Steve Cox 
+Creates word2vec models of pubmed central full text articles. Uses gensim word2vec.
+
+Docstring: Google Doc String: http://sphinxcontrib-napoleon.readthedocs.io/en/latest/index.html
+"""
 from __future__ import division
 import argparse
 import calendar
@@ -25,10 +24,14 @@ from chemotext_util import SerializationUtil as SUtil
 from chemotext_util import SparkUtil
 from datetime import date
 from itertools import islice
+from nltk.tokenize import TreebankWordTokenizer
+from nltk.tokenize import sent_tokenize
 
 logger = LoggingUtil.init_logging (__file__)
 
 class ArticleSentenceGenerator(object):
+    # http://www.nltk.org/api/nltk.tokenize.html#nltk.tokenize.treebank.TreebankWordTokenizer
+    tokenizer = TreebankWordTokenizer()
     """
     Scalably generate a set of sentences from preprocessed articles.
     To be scalable, Gensim needs to read sentences in a stream, rather than attempting to read them all into
@@ -40,17 +43,19 @@ class ArticleSentenceGenerator(object):
         self.input_dir = input_dir
         with open (file_list) as stream:
             self.files = json.loads (stream.read ())
-            print ("   ==> sentence generator. filelist: {0}".format (len (self.files)))
-    def fix_path (self, path):
-        base = "{0}.json".format (os.path.basename (path))
-        return os.path.join(self.input_dir, base)
+
     def __iter__(self):
         for file_name in self.files:
             if self.match (file_name):
-                article_path = self.fix_path (file_name)
+                base = "{0}.json".format (os.path.basename (file_name))
+                article_path os.path.join(self.input_dir, base)
                 article = SUtil.get_article (article_path)
                 if article is not None:
-                    sentences = [ s.split(' ') for p in article.paragraphs for s in p.sentences ]
+                    # http://www.nltk.org/api/nltk.tokenize.html#module-nltk.tokenize
+                    sentences = [ self.tokenizer.tokenize(s) s in sent_tokenize (article.raw) ]
+                    print (" sentences------------> {0}".format (sentences))
+                    #sentences = [ self.tokenizer.tokenize(s) for p in article.paragraphs for s in p.sentences ]
+                    #sentences = [ s.split(' ') for p in article.paragraphs for s in p.sentences ]
                     for s in sentences:
                         yield s
     def match (self, article):
@@ -59,6 +64,7 @@ class ArticleSentenceGenerator(object):
 class MonthArticleSentenceGenerator (ArticleSentenceGenerator):
     """
     Generate sentences by month represented as a year and month.
+    Provide a configurable number of months of history.
     """
     def __init__(self, input_dir, file_list, year, month, depth=1): 
         """
@@ -158,7 +164,7 @@ def build_all_models (sc, in_dir, file_list, out_dir):
     """
     years   = [ y for y in range (1900, datetime.datetime.now().year + 1) ]
     months  = [ ( y, m ) for y in years for m in range (1, 12 + 1) ]
-    windows = get_windows (years)
+    #windows = get_windows (years)
 
     ''' Generate parameters for all word level models '''
     composite_elements = [ ( "year",       "word",   m ) for m in months  ] + \
@@ -201,10 +207,8 @@ sentence_gen = {
     "year"       : lambda i,f,d : MonthArticleSentenceGenerator (input_dir=i, file_list=f, year=d[0],   month=d[1], depth=1 * 12),
     "2year"      : lambda i,f,d : MonthArticleSentenceGenerator (input_dir=i, file_list=f, year=d[0],   month=d[1], depth=2 * 12),
     "3year"      : lambda i,f,d : MonthArticleSentenceGenerator (input_dir=i, file_list=f, year=d[0],   month=d[1], depth=3 * 12),
-
     "month"      : lambda i,f,d : MonthArticleSentenceGenerator (input_dir=i, file_list=f, year=d[0],   month=d[1], depth=1),
     "2month"     : lambda i,f,d : MonthArticleSentenceGenerator (input_dir=i, file_list=f, year=d[0],   month=d[1], depth=2),
-
     "cumulative" : lambda i,f,d : CumulativeYearArticleSentenceGenerator (input_dir=i, file_list=f, year=d)
 }
 
@@ -240,15 +244,16 @@ def generate_model (file_name, sentences):
         traceback.print_exc ()
     return result
 
+"""
 def get_windows(seq, n=3):
-    """ Returns a sliding window (of width n) over data from the iterable
+
+    Returns a sliding window (of width n) over data from the iterable
     Args:
         seq (list): List to generate windows from.
         n (int) : Window size
 
     Returns:
         generator: Generator of windows: s -> (s0,s1,...s[n-1]), (s1,s2,...,sn), ...                   
-    """
     it = iter(seq)
     result = tuple(islice(it, n))
     if len(result) == n:
@@ -256,6 +261,7 @@ def get_windows(seq, n=3):
     for elem in it:
         result = result[1:] + (elem,)
         yield result
+"""
 
 def main ():
     """

@@ -339,5 +339,20 @@ execute_words () {
         --parts $EVAL_PARTS \
 	$*
 }
+execute_gene_model () {
+    echo $DATA_HOME
+    spark \
+	--py-files python/chemotext_util.py  \
+        $APP_HOME/python/gene_model.py \
+        --host  $MESOS_MASTER \
+        --name  "Chemotext2:GeneModel" \
+        --venv  $VENV \
+        --input $DATA_HOME \
+        --model /projects/mipseq/chemotext2/model2011 \
+	--output $DATA_HOME/model \
+	--slices 1 \
+        --parts 360 \
+	$*
+}
 
 main $*
