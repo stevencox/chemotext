@@ -27,12 +27,23 @@ logger = LoggingUtil.init_logging (__file__)
 
 def process_graphs (sc, in_dir, partitions):
     """
+    Read graph vertices and edges from disk if already saved.
+    Otherwise,
     Read chem2bio2rdf drugbank, pubchem, and other N3 RDF models.
+    Save vertices and edges to disk.
+    
+    Traverse the resulting graph - calculating page rank, using
+    SQL to get names and PDB links of drugs.
+
     Args:
         sc (SparkContext): Access to the Spark compute fabric.
-        in_dir (str): Path to Chemotext data storage including w2v models
+        in_dir (str): Path to Chemotext data storage for raw chem2bio2rdf N3 RDF models.
+        partitions (int): Number of data partitions.
     """
-    n3_dirs = [ os.path.join (in_dir, "drugbank"), os.path.join (in_dir, "pubchem") ]
+    n3_dirs = [
+        os.path.join (in_dir, "drugbank"),
+        os.path.join (in_dir, "pubchem")
+    ]
     sqlContext = SQLContext (sc)
     vertices_path_posix = os.path.join (in_dir, "vertices")
     edges_path_posix = os.path.join (in_dir, "edges")
@@ -78,24 +89,32 @@ def process_graphs (sc, in_dir, partitions):
         print ("Query: Get in-degree of each vertex.")
         g.inDegrees.sort ("inDegree", ascending=False).show(truncate=False)
         
-#        print ("Query the number of protein database relationships")
-#        #g.edges.filter("relationship = '<http://chem2bio2rdf.org/drugbank/resource/PDB_ID>'").count()
-#        g.edges.filter("relationship LIKE '%resource/PDB_ID>%' ").count()
-        
-#        print ("Run PageRank algorithm, and show results.")
-#        results = g.pageRank(resetProbability=0.01, maxIter=20)
-#        results.vertices.select("id", "pagerank").show(truncate=False)
 
+
+        print ("Query the number of protein database relationships")
+        pdb_rels = g.edges.filter("relationship LIKE '%resource/PDB_ID>%' ").count()
+        print ("PDB rels: {0}".format (pdb_rels))
+
+        '''
+        print ("Run PageRank algorithm, and show results.")
+        results = g.pageRank(resetProbability=0.01, maxIter=20)
+        results.vertices.select("id", "pagerank").show(truncate=False)
+        '''
+
+        edges.registerTempTable ("edges")
 
         print ("Query resource/Name:")
-        edges.registerTempTable ("edges")
         sqlContext.sql ("SELECT src, dst FROM edges WHERE relationship LIKE '%resource/Name>%' ").show (truncate=False)
-        print ("Query resource/PDB_ID:")
-        sqlContext.sql ("SELECT src, dst FROM edges WHERE relationship LIKE '%resource/PDB_ID>%' ").show (truncate=False)
 
-#        print ("Query resource names")
-#        g2 = GraphFrame (vertices, edges.filter ( "edges.relationship".contains ('resource/Name') ))
-#        g2.find ("()-[]->(N)").show ()
+#        print ("Query resource/PDB_ID:")
+#        sqlContext.sql ("SELECT src, dst FROM edges WHERE relationship LIKE '%resource/PDB_ID>%' ").show (truncate=False)
+
+        print ("Query resource/openeye_%_smiles%:")
+        sqlContext.sql (" SELECT src, dst FROM edges WHERE relationship LIKE '%openeye_%_smiles>%' ").show (truncate=False)
+
+        print ("Query resource names")
+        g.find("(a)-[e]->(b)").filter ("e.relationship = '<http://chem2bio2rdf.org/drugbank/resource/PDB_ID>' ").show (truncate=False)
+
 
     return g
 
@@ -146,7 +165,7 @@ def process_chunk (n3_file):
                                 str(predicate.n3 ()),
                                 str(obj.n3 ())) for subject, predicate, obj in g ]
     except:
-        print ("--------------ERROR:")
+        print ("ERROR:")
         traceback.print_exc ()
         result = []
     return result
