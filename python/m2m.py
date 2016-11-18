@@ -50,11 +50,10 @@ def process_graphs (sc, in_dir, partitions):
         in_dir (str): Path to Chemotext data storage for raw chem2bio2rdf N3 RDF models.
         partitions (int): Number of data partitions.
     """
-    n3_dirs = [
-        os.path.join (in_dir, "drugbank"),
-        os.path.join (in_dir, "pubchem")
-    ]
     sqlContext = SQLContext (sc)
+
+    n3_dirs = [ os.path.join (in_dir, d) for d in [ "drugbank", "pubchem" ] ]
+
     vertices_path_posix = os.path.join (in_dir, "vertices")
     edges_path_posix = os.path.join (in_dir, "edges")
     vertices_path = "file://{0}".format (vertices_path_posix)
@@ -66,18 +65,14 @@ def process_graphs (sc, in_dir, partitions):
     g = None
 
     if os.path.exists (vertices_path_posix) and os.path.exists (edges_path_posix):
-        print ("Loading existing vertices/edges: [{0}, {1}]".format (vertices_path, edges_path))
-        vertices = sqlContext.read.parquet (vertices_path).coalesce (partitions).cache ()
-        edges = sqlContext.read.parquet (edges_path).coalesce (partitions).cache ()
+        print ("Loading existing vertices: {0}".format (vertices_path))
+        vertices = sqlContext.read.parquet (vertices_path).cache ()
+
+        print ("Loading existing edges: {0}".format (edges_path))
+        edges = sqlContext.read.parquet (edges_path).cache ()
     else:
         print ("Constructing vertices and edges from chem2bio2rdf data sources")
 
-        '''
-        triples = sc.parallelize (n3_dirs, numSlices=partitions). \
-                  flatMap (lambda d : map (lambda f : os.path.join (d, f), os.listdir (d))). \
-                  coalesce (numPartitions=partitions). \
-                  flatMap (lambda n3_file : process_chunk (n3_file))
-        '''
         files = [ os.path.join (n3_dir, n3_file) for n3_dir in n3_dirs for n3_file in os.listdir (n3_dir) ]
         triples = sc.parallelize (files, numSlices=partitions). \
                   flatMap (lambda n3_file : process_chunk (n3_file))
@@ -86,7 +81,8 @@ def process_graphs (sc, in_dir, partitions):
             data = triples.flatMap (lambda d : [
                 ( trim_uri (d.S), "attr0" ),
                 ( trim_uri (d.O), "attr1" ) ]),
-            schema=[ "id", "attr" ]).cache ()
+            schema=[ "id", "attr" ]).\
+            cache ()
         vertices.printSchema ()
  
         edges = sqlContext.createDataFrame (
@@ -99,7 +95,6 @@ def process_graphs (sc, in_dir, partitions):
         edges.printSchema ()
  
         print ("Triples: {0}".format (triples.count ()))
-
 
         if os.path.exists (vertices_path_posix):
             shutil.rmtree (vertices_path_posix)
@@ -118,32 +113,28 @@ def process_graphs (sc, in_dir, partitions):
         
         print ("Query: Number of protein database relationships: {0}".format (
             g.edges.\
-            filter("relationship LIKE '%resource/PDB_ID>%' ").\
+            filter("relationship LIKE '%resource/PDB_ID%' ").\
             count ()))
-
-        print ("Run PageRank algorithm, and show results.")
-        results = g.pageRank(resetProbability=0.01, maxIter=20)
-        results.vertices.select("id", "pagerank").show(truncate=False)
-
+        
         edges.registerTempTable ("edges")
 
         sqlContext.sql ("""
-           SELECT substring(src, length(src)-7, 6) as Drug, dst as Name
+           SELECT substring(src, length(src)-7, 6) as Drug,
+                  dst as Name
            FROM edges
-           WHERE relationship LIKE '%resource/Name>%'
-        """).show (truncate=False)
+           WHERE relationship LIKE '%resource/Name%'
+        """).show (n=3, truncate=False)
 
-        print ("Query resource/openeye_%_smiles%:")
         sqlContext.sql ("""
-           SELECT substring(src, length(src)-8, 7) as Compound,
+           SELECT substring(src, length(src)-7, 6) as Compound,
                   dst as SMILES
            FROM edges 
-           WHERE relationship LIKE '%open%_smiles>%'
-        """).show (n=5, truncate=False)
+           WHERE relationship LIKE '%open%_smiles%'
+           ORDER BY -length(SMILES)
+        """).show (n=3, truncate=False)
 
-        print ("Query resource names")
-        g.find ("()-[E]->()"). \
-            filter ("E.relationship = '<http://chem2bio2rdf.org/drugbank/resource/PDB_ID>' "). \
+        g.find ("()-[Drug2PDB]->()"). \
+            filter ("Drug2PDB.relationship = 'resource/PDB_ID' "). \
             show (n=3, truncate=False)
 
     return g
