@@ -128,9 +128,8 @@ def process_graphs (sc, in_dir, partitions):
         sqlContext.sql ("""
            SELECT substring(src, length(src)-7, 6) as Compound,
                   dst as SMILES
-           FROM edges 
+           FROM edges
            WHERE relationship LIKE '%open%_smiles%'
-           ORDER BY -length(SMILES)
         """).show (n=3, truncate=False)
 
         g.find ("()-[Drug2PDB]->()"). \
