@@ -12,6 +12,7 @@ import json
 import os
 import pprint
 import random
+import re
 import shutil
 import traceback
 from chemotext_util import SparkConf
@@ -21,9 +22,18 @@ from chemotext_util import LoggingUtil
 from datetime import date
 from graphframes import GraphFrame
 from rdflib import Graph
+from pyspark.sql import Row
 from pyspark.sql import SQLContext
 
 logger = LoggingUtil.init_logging (__file__)
+
+def trim_uri (u):
+    result = u
+    if u.startswith ("<http://"):
+        s = u.replace('>', '').split ('/')
+        n = len (s)
+        result ='/'.join (s[n-2:n])
+    return result
 
 def process_graphs (sc, in_dir, partitions):
     """
@@ -57,29 +67,44 @@ def process_graphs (sc, in_dir, partitions):
 
     if os.path.exists (vertices_path_posix) and os.path.exists (edges_path_posix):
         print ("Loading existing vertices/edges: [{0}, {1}]".format (vertices_path, edges_path))
-
-        vertices = sqlContext.read.parquet (vertices_path)
-        edges = sqlContext.read.parquet (edges_path)
+        vertices = sqlContext.read.parquet (vertices_path).coalesce (partitions).cache ()
+        edges = sqlContext.read.parquet (edges_path).coalesce (partitions).cache ()
     else:
         print ("Constructing vertices and edges from chem2bio2rdf data sources")
 
+        '''
         triples = sc.parallelize (n3_dirs, numSlices=partitions). \
                   flatMap (lambda d : map (lambda f : os.path.join (d, f), os.listdir (d))). \
-                  repartition (numPartitions=partitions). \
+                  coalesce (numPartitions=partitions). \
+                  flatMap (lambda n3_file : process_chunk (n3_file))
+        '''
+        files = [ os.path.join (n3_dir, n3_file) for n3_dir in n3_dirs for n3_file in os.listdir (n3_dir) ]
+        triples = sc.parallelize (files, numSlices=partitions). \
                   flatMap (lambda n3_file : process_chunk (n3_file))
 
-        vertices = sqlContext.createDataFrame (triples.flatMap (lambda d : [ ( d.S, "t1" ), ( d.O, "t2" ) ]),
-                                               schema=[ "id", "term" ])
+        vertices = sqlContext.createDataFrame (
+            data = triples.flatMap (lambda d : [
+                ( trim_uri (d.S), "attr0" ),
+                ( trim_uri (d.O), "attr1" ) ]),
+            schema=[ "id", "attr" ]).cache ()
         vertices.printSchema ()
-        print ("v: {0}".format (vertices.take (10)))
-
-        edges = sqlContext.createDataFrame (triples.map (lambda d : (d.S, d.O, d.P)),
-                                            schema=[ "src", "dst", "relationship" ])
+ 
+        edges = sqlContext.createDataFrame (
+            data = triples.map (lambda d : (
+                trim_uri (d.S),
+                trim_uri (d.O),
+                trim_uri (d.P) )),
+            schema = [ "src", "dst", "relationship" ]). \
+            cache ()
         edges.printSchema ()
-        print ("e: {0}".format (edges.take (10)))
+ 
+        print ("Triples: {0}".format (triples.count ()))
 
-        shutil.rmtree (vertices_path_posix)
-        shutil.rmtree (edges_path_posix)
+
+        if os.path.exists (vertices_path_posix):
+            shutil.rmtree (vertices_path_posix)
+        if os.path.exists (edges_path_posix):
+            shutil.rmtree (edges_path_posix)
         vertices.write.parquet (vertices_path)
         edges.write.parquet (edges_path)
 
@@ -87,70 +112,48 @@ def process_graphs (sc, in_dir, partitions):
         g = GraphFrame(vertices, edges)
 
         print ("Query: Get in-degree of each vertex.")
-        g.inDegrees.sort ("inDegree", ascending=False).show(truncate=False)
+        g.inDegrees.\
+            sort ("inDegree", ascending=False).\
+            show(n=3, truncate=False)
         
+        print ("Query: Number of protein database relationships: {0}".format (
+            g.edges.\
+            filter("relationship LIKE '%resource/PDB_ID>%' ").\
+            count ()))
 
-
-        print ("Query the number of protein database relationships")
-        pdb_rels = g.edges.filter("relationship LIKE '%resource/PDB_ID>%' ").count()
-        print ("PDB rels: {0}".format (pdb_rels))
-
-        '''
         print ("Run PageRank algorithm, and show results.")
         results = g.pageRank(resetProbability=0.01, maxIter=20)
         results.vertices.select("id", "pagerank").show(truncate=False)
-        '''
 
         edges.registerTempTable ("edges")
 
-        print ("Query resource/Name:")
-        sqlContext.sql ("SELECT src, dst FROM edges WHERE relationship LIKE '%resource/Name>%' ").show (truncate=False)
-
-#        print ("Query resource/PDB_ID:")
-#        sqlContext.sql ("SELECT src, dst FROM edges WHERE relationship LIKE '%resource/PDB_ID>%' ").show (truncate=False)
+        sqlContext.sql ("""
+           SELECT substring(src, length(src)-7, 6) as Drug, dst as Name
+           FROM edges
+           WHERE relationship LIKE '%resource/Name>%'
+        """).show (truncate=False)
 
         print ("Query resource/openeye_%_smiles%:")
-        sqlContext.sql (" SELECT src, dst FROM edges WHERE relationship LIKE '%openeye_%_smiles>%' ").show (truncate=False)
+        sqlContext.sql ("""
+           SELECT substring(src, length(src)-8, 7) as Compound,
+                  dst as SMILES
+           FROM edges 
+           WHERE relationship LIKE '%open%_smiles>%'
+        """).show (n=5, truncate=False)
 
         print ("Query resource names")
-        g.find("(a)-[e]->(b)").filter ("e.relationship = '<http://chem2bio2rdf.org/drugbank/resource/PDB_ID>' ").show (truncate=False)
-
+        g.find ("()-[E]->()"). \
+            filter ("E.relationship = '<http://chem2bio2rdf.org/drugbank/resource/PDB_ID>' "). \
+            show (n=3, truncate=False)
 
     return g
-
-'''
-
-// drug name...
-<http://chem2bio2rdf.org/drugbank/resource/drugbank_interaction/5327> <http://chem2bio2rdf.org/drugbank/resource/PDB_ID> <http://chem2bio2rdf.org/uniprot/resource/pdb/1PSD> .
-<http://chem2bio2rdf.org/drugbank/resource/drugbank_interaction/5327> <http://chem2bio2rdf.org/drugbank/resource/CID_GENE> <http://chem2bio2rdf.org/chemogenomics/resource/chemogenomics/449328:SERA> .
-<http://chem2bio2rdf.org/drugbank/resource/drugbank_interaction/5327> <http://chem2bio2rdf.org/drugbank/resource/Name> "D-3-phosphoglycerate dehydrogenase" .
-<http://chem2bio2rdf.org/drugbank/resource/drugbank_interaction/5327> <http://chem2bio2rdf.org/drugbank/resource/gene> <http://chem2bio2rdf.org/uniprot/resource/gene/SERA> .
-<http://chem2bio2rdf.org/drugbank/resource/drugbank_interaction/5327> <http://www.w3.org/2000/01/rdf-schema#label> "c2b2r_DrugBankTarget #5327" .
-<http://chem2bio2rdf.org/drugbank/resource/drugbank_interaction/5327> <http://chem2bio2rdf.org/drugbank/resource/SwissProt_ID> <http://chem2bio2rdf.org/uniprot/resource/uniprot/P0A9T0> .
-
-// smiles
-<http://chem2bio2rdf.org/pubchem/resource/pubchem_compound/5288796> <http://chem2bio2rdf.org/pubchem/resource/openeye_can_smiles> "CNC(=O)CCC(C(=O)[O-])N" .
-<http://chem2bio2rdf.org/pubchem/resource/pubchem_compound/5288796> <http://chem2bio2rdf.org/pubchem/resource/openeye_iso_smiles> "CNC(=O)CC[C@@H](C(=O)[O-])N" . 
-<http://chem2bio2rdf.org/pubchem/resource/pubchem_compound/5288799> <http://chem2bio2rdf.org/pubchem/resource/openeye_can_smiles> "CC1CN(CC(O1)C)CCCCCCCCNC=O" . 
-
-<http://chem2bio2rdf.org/drugbank/resource/drugbank_drug/DB05246> <http://chem2bio2rdf.org/drugbank/resource/CID> <http://chem2bio2rdf.org/pubchem/resource/pubchem_compound/6476> .
-<http://chem2bio2rdf.org/drugbank/resource/drugbank_drug/DB05259> <http://chem2bio2rdf.org/drugbank/resource/CID> <http://chem2bio2rdf.org/pubchem/resource/pubchem_compound/3081884> .
-<http://chem2bio2rdf.org/drugbank/resource/drugbank_drug/DB05260> <http://chem2bio2rdf.org/drugbank/resource/CID> <http://chem2bio2rdf.org/pubchem/resource/pubchem_compound/61635> .
-
-'''
-
-
 
 class Proposition (object):
     def __init__(self, S, P, O):
         self.S = S
         self.P = P
         self.O = O
-class Drugbank(Proposition):
-    pass
-class PubChem(Proposition):
-    pass
-    
+
 def process_chunk (n3_file):
     """
     Read an N3 RDF model.
@@ -170,10 +173,6 @@ def process_chunk (n3_file):
         result = []
     return result
 
-#    for subject, predicate, obj in g:
-#        result.append (Drugbank (subject, predicate, obj) if "drugbank" in n3_file else PubChem(subject, predicate, obj))
-#    return result
-                                                                             
 def main ():
     """
     Annotate model files with word embedding computed cosine similarity.
@@ -204,4 +203,38 @@ def main ():
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+
+
+'''
+
+http://go.databricks.com/hubfs/notebooks/3-GraphFrames-User-Guide-scala.html
+
+http://graphframes.github.io/user-guide.html#motif-finding
+
+
+// drug name...
+<http://chem2bio2rdf.org/drugbank/resource/drugbank_interaction/5327> <http://chem2bio2rdf.org/drugbank/resource/PDB_ID> <http://chem2bio2rdf.org/uniprot/resource/pdb/1PSD> .
+<http://chem2bio2rdf.org/drugbank/resource/drugbank_interaction/5327> <http://chem2bio2rdf.org/drugbank/resource/CID_GENE> <http://chem2bio2rdf.org/chemogenomics/resource/chemogenomics/449328:SERA> .
+<http://chem2bio2rdf.org/drugbank/resource/drugbank_interaction/5327> <http://chem2bio2rdf.org/drugbank/resource/Name> "D-3-phosphoglycerate dehydrogenase" .
+<http://chem2bio2rdf.org/drugbank/resource/drugbank_interaction/5327> <http://chem2bio2rdf.org/drugbank/resource/gene> <http://chem2bio2rdf.org/uniprot/resource/gene/SERA> .
+<http://chem2bio2rdf.org/drugbank/resource/drugbank_interaction/5327> <http://www.w3.org/2000/01/rdf-schema#label> "c2b2r_DrugBankTarget #5327" .
+<http://chem2bio2rdf.org/drugbank/resource/drugbank_interaction/5327> <http://chem2bio2rdf.org/drugbank/resource/SwissProt_ID> <http://chem2bio2rdf.org/uniprot/resource/uniprot/P0A9T0> .
+
+// smiles
+<http://chem2bio2rdf.org/pubchem/resource/pubchem_compound/5288796> <http://chem2bio2rdf.org/pubchem/resource/openeye_can_smiles> "CNC(=O)CCC(C(=O)[O-])N" .
+<http://chem2bio2rdf.org/pubchem/resource/pubchem_compound/5288796> <http://chem2bio2rdf.org/pubchem/resource/openeye_iso_smiles> "CNC(=O)CC[C@@H](C(=O)[O-])N" . 
+<http://chem2bio2rdf.org/pubchem/resource/pubchem_compound/5288799> <http://chem2bio2rdf.org/pubchem/resource/openeye_can_smiles> "CC1CN(CC(O1)C)CCCCCCCCNC=O" . 
+
+<http://chem2bio2rdf.org/drugbank/resource/drugbank_drug/DB05246> <http://chem2bio2rdf.org/drugbank/resource/CID> <http://chem2bio2rdf.org/pubchem/resource/pubchem_compound/6476> .
+<http://chem2bio2rdf.org/drugbank/resource/drugbank_drug/DB05259> <http://chem2bio2rdf.org/drugbank/resource/CID> <http://chem2bio2rdf.org/pubchem/resource/pubchem_compound/3081884> .
+<http://chem2bio2rdf.org/drugbank/resource/drugbank_drug/DB05260> <http://chem2bio2rdf.org/drugbank/resource/CID> <http://chem2bio2rdf.org/pubchem/resource/pubchem_compound/61635> .
+
+'''
+
+
 

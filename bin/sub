@@ -28,8 +28,6 @@ if [ -z "$STARS_HOME" ]; then
     exit 1
 fi
 
-source /projects/stars/stack/spark/spark2/conf/spark-env.sh
-
 echo STARS_HOME: $STARS_HOME
 
 env=test
@@ -127,6 +125,7 @@ EOF
 init () {
     APP_HOME=$STARS_HOME/app/chemotext
     SPARK_HOME=$STARS_HOME/stack/spark/current
+    SPARK_HOME=$STARS_HOME/stack/spark/spark2
     DATA_HOME=$STARS_HOME/var/chemotext
     MESHXML=$DATA_HOME/mesh/desc2016_2.xml
     TMCHEM_HOME=$DATA_HOME/tmchem
@@ -358,8 +357,9 @@ execute_gene_model () {
 }
 execute_m2m () {
     echo $DATA_HOME
+#        --packages "graphframes:graphframes:0.3.0-spark1.6-s_2.10" \
     spark \
-        --packages "graphframes:graphframes:0.3.0-spark1.6-s_2.10" \
+        --packages "graphframes:graphframes:0.3.0-spark2.0-s_2.11" \
 	--py-files python/chemotext_util.py  \
         $APP_HOME/python/m2m.py \
         --host  $MESOS_MASTER \
