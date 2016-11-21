@@ -14,6 +14,7 @@ import pprint
 import random
 import re
 import shutil
+import time
 import traceback
 from chemotext_util import SparkConf
 from chemotext_util import SparkUtil
@@ -65,11 +66,19 @@ def process_graphs (sc, in_dir, partitions):
     g = None
 
     if os.path.exists (vertices_path_posix) and os.path.exists (edges_path_posix):
+
         print ("Loading existing vertices: {0}".format (vertices_path))
-        vertices = sqlContext.read.parquet (vertices_path).cache ()
+        start = time.time ()
+        vertices = sqlContext.read.parquet (vertices_path).repartition(partitions).cache ()
+        print ("Elapsed time for loading precomputed vertices: {0} seconds.".format (
+            time.time () - start))
 
         print ("Loading existing edges: {0}".format (edges_path))
-        edges = sqlContext.read.parquet (edges_path).cache ()
+        start = time.time ()
+        edges = sqlContext.read.parquet (edges_path).repartition(partitions).cache ()
+        print ("Elapsed time for loading precomputed edges: {0} seconds.".format (
+            time.time () - start))
+
     else:
         print ("Constructing vertices and edges from chem2bio2rdf data sources")
 
@@ -82,9 +91,7 @@ def process_graphs (sc, in_dir, partitions):
                 ( trim_uri (d.S), "attr0" ),
                 ( trim_uri (d.O), "attr1" ) ]),
             schema=[ "id", "attr" ]).\
-            cache ()
-        vertices.printSchema ()
- 
+            cache () 
         edges = sqlContext.createDataFrame (
             data = triples.map (lambda d : (
                 trim_uri (d.S),
@@ -92,7 +99,6 @@ def process_graphs (sc, in_dir, partitions):
                 trim_uri (d.P) )),
             schema = [ "src", "dst", "relationship" ]). \
             cache ()
-        edges.printSchema ()
  
         print ("Triples: {0}".format (triples.count ()))
 
@@ -104,17 +110,33 @@ def process_graphs (sc, in_dir, partitions):
         edges.write.parquet (edges_path)
 
     if vertices is not None and edges is not None:
+        start = time.time ()
+        vertices.printSchema ()
+        edges.printSchema ()
+        print ("Elapsed time for print schema: {0} seconds.".format (
+            time.time () - start))
+
+        start = time.time ()
+        print (" Total of {0} edges.".format (edges.count ()))
+        print ("Elapsed time for count edges: {0}".format (time.time () - start))
+
         g = GraphFrame(vertices, edges)
 
         print ("Query: Get in-degree of each vertex.")
+        start = time.time ()
         g.inDegrees.\
             sort ("inDegree", ascending=False).\
             show(n=3, truncate=False)
-        
+        print ("Elapsed time for computing in-degree: {0} seconds.".format (
+            time.time () - start))
+
+        start = time.time ()
         print ("Query: Number of protein database relationships: {0}".format (
             g.edges.\
             filter("relationship LIKE '%resource/PDB_ID%' ").\
             count ()))
+        print ("Elapsed time for edge filter and count query: {0} seconds.".format (
+            time.time () - start))
         
         edges.registerTempTable ("edges")
 
@@ -125,16 +147,22 @@ def process_graphs (sc, in_dir, partitions):
            WHERE relationship LIKE '%resource/Name%'
         """).show (n=3, truncate=False)
 
+        start = time.time ()
         sqlContext.sql ("""
            SELECT substring(src, length(src)-7, 6) as Compound,
                   dst as SMILES
            FROM edges
            WHERE relationship LIKE '%open%_smiles%'
         """).show (n=3, truncate=False)
+        print ("Elapsed time for SQL query: {0} seconds.".format (
+            time.time () - start))
 
+        start = time.time ()
         g.find ("()-[Drug2PDB]->()"). \
-            filter ("Drug2PDB.relationship = 'resource/PDB_ID' "). \
+            filter ("Drug2PDB.relationship LIKE '%/PDB_ID' "). \
             show (n=3, truncate=False)
+        print ("Elapsed time for graph motif query: {0} seconds.".format (
+            time.time () - start))
 
     return g
 
@@ -153,10 +181,15 @@ def process_chunk (n3_file):
     result = []
     g = Graph()
     try:
+        print ("Loading N3 file: {0}".format (n3_file))
+        start = time.time ()
         g.parse (n3_file, format="n3")
         result = [ Proposition (str(subject.n3 ()),
                                 str(predicate.n3 ()),
                                 str(obj.n3 ())) for subject, predicate, obj in g ]
+        print ("Elapsed time parsing {0} is {1} seconds.".format (
+            time.time () - start,
+            n3_file))
     except:
         print ("ERROR:")
         traceback.print_exc ()

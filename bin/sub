@@ -368,7 +368,7 @@ execute_m2m () {
         --input $DATA_HOME/../m2m/chem2bio2rdf \
 	--output $DATA_HOME/model \
 	--slices 1 \
-        --parts 360 \
+        --parts 600 \
 	$*
 }
 
