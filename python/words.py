@@ -7,7 +7,9 @@ Docstring: Google Doc String: http://sphinxcontrib-napoleon.readthedocs.io/en/la
 from __future__ import division
 import argparse
 import calendar
+import csv
 import datetime
+import enchant
 import glob
 import json
 import os
@@ -29,6 +31,39 @@ from nltk.tokenize import sent_tokenize
 
 logger = LoggingUtil.init_logging (__file__)
 
+class GeneSynonyms (object):
+    def __init__(self, path):
+        self.dict = enchant.Dict("en_US")
+        self.map = {}
+        with open (path, "rU") as stream:
+            data = csv.reader(stream, delimiter=',', quotechar='"', dialect=csv.excel_tab)
+            for row in data:
+                print ', '.join (row)
+                canonical = row[0].lower ()
+                if len(row) < 2:
+                    print ("len(row) {0}".format (len(row)))
+                else:
+                    synonyms = row[1]
+                    if synonyms.startswith ('"') and synonyms.endswith ('"'):
+                        synonyms.replace ('"', '')
+                    synonyms = map (lambda s : s.strip ().lower(), synonyms.split (','))
+                    for synonym in synonyms:
+                        self.map [synonym] = canonical
+        #print (json.dumps (self.map, sort_keys=True, indent=2))
+
+    def get_canonical (self, text):
+        return self.map[text] if text in self.map else None
+
+    def make_canonical (self, text):
+        output = text.lower().split () if isinstance(text, str) else text
+        for i, k in enumerate (output):
+            if self.dict.check (k):
+                continue # don't do english words (for now).
+            if k in self.map:
+                print ("  --replacing {0}->{1}".format (k, self.map[k]))
+                output[i] = self.map[k]
+        return output
+
 class ArticleSentenceGenerator(object):
     # http://www.nltk.org/api/nltk.tokenize.html#nltk.tokenize.treebank.TreebankWordTokenizer
     tokenizer = TreebankWordTokenizer()
@@ -39,21 +74,24 @@ class ArticleSentenceGenerator(object):
     case, that's JSON files created for each parsed article. We create a set of sub-classes to read specific
     subsets of these JSON objects to implement word embedding models based on a variety of timeframes.
     """
-    def __init__(self, input_dir, file_list):        
+    def __init__(self, input_dir, file_list, hgnc):
         self.input_dir = input_dir
         with open (file_list) as stream:
             self.files = json.loads (stream.read ())
+        print ("  -- initializing gene synonyms.")
+        self.gene_syn = GeneSynonyms (hgnc)
 
     def __iter__(self):
         for file_name in self.files:
             if self.match (file_name):
                 base = "{0}.json".format (os.path.basename (file_name))
-                article_path os.path.join(self.input_dir, base)
+                article_path = os.path.join(self.input_dir, base)
                 article = SUtil.get_article (article_path)
                 if article is not None:
                     # http://www.nltk.org/api/nltk.tokenize.html#module-nltk.tokenize
-                    sentences = [ self.tokenizer.tokenize(s) s in sent_tokenize (article.raw) ]
-                    print (" sentences------------> {0}".format (sentences))
+                    sentence_tokens = [ self.tokenizer.tokenize(s) for s in sent_tokenize (article.raw) ]
+                    sentences = [ self.gene_syn.make_canonical (s) for s in sentence_tokens ]
+                    #print (" sentences------------> {0}".format (sentences))
                     #sentences = [ self.tokenizer.tokenize(s) for p in article.paragraphs for s in p.sentences ]
                     #sentences = [ s.split(' ') for p in article.paragraphs for s in p.sentences ]
                     for s in sentences:
@@ -66,7 +104,7 @@ class MonthArticleSentenceGenerator (ArticleSentenceGenerator):
     Generate sentences by month represented as a year and month.
     Provide a configurable number of months of history.
     """
-    def __init__(self, input_dir, file_list, year, month, depth=1): 
+    def __init__(self, input_dir, file_list, year, month, hgnc, depth=1): 
         """
         This can be used to flexibly collect N months of sentences ending at
         the specified year and month.
@@ -78,7 +116,7 @@ class MonthArticleSentenceGenerator (ArticleSentenceGenerator):
             month (int): End month
             depth (int): Number of months of history to include. Default: 1
         """
-        ArticleSentenceGenerator.__init__ (self, input_dir, file_list)
+        ArticleSentenceGenerator.__init__ (self, input_dir, file_list, hgnc)
         self.tags = map (lambda d : self.get_month_tag (d),
                          [ date (year  = year - int(depth/12) + int(d/12),
                                  month = d % 12 + 1,
@@ -95,8 +133,8 @@ class MonthArticleSentenceGenerator (ArticleSentenceGenerator):
 
 class CumulativeYearArticleSentenceGenerator (ArticleSentenceGenerator):
     """ Generate all sentences from the corpus up to the specified year """
-    def __init__(self, input_dir, file_list, year):
-        ArticleSentenceGenerator.__init__ (self, input_dir, file_list)
+    def __init__(self, input_dir, file_list, year, hgnc):
+        ArticleSentenceGenerator.__init__ (self, input_dir, file_list, hgnc)
         self.year = year
     def match (self, article_path):
         matches = False
@@ -142,7 +180,7 @@ def get_file_name (out_dir, model_type, mode, data):
     formatted_data = pattern.format (*data) if isinstance (data, list) or isinstance(data, tuple) else pattern.format (data)
     return os.path.join (model_dir, formatted_data)
 
-def build_all_models (sc, in_dir, file_list, out_dir):
+def build_all_models (sc, in_dir, file_list, out_dir, hgnc):
     """ Builds all word2vec models.
 
     Generates a list of timeframe identifiers such as year, month, and three-year-span.
@@ -197,19 +235,19 @@ def build_all_models (sc, in_dir, file_list, out_dir):
                                                                                  model_type=c[0],
                                                                                  mode=c[1],
                                                                                  data=c[2]),
-                                                      sentences = sentence_gen [c[0]](in_dir, file_list, c[2]))). \
+                                                      sentences = sentence_gen [c[0]](in_dir, file_list, c[2], hgnc))). \
                       filter (lambda c : c is not None). \
                       sum ()
         print ("Generated {0} models.".format (model_count))
 
 ''' A map of functions to generate scalable sentence iterators based on type of model to generate. '''
 sentence_gen = {
-    "year"       : lambda i,f,d : MonthArticleSentenceGenerator (input_dir=i, file_list=f, year=d[0],   month=d[1], depth=1 * 12),
-    "2year"      : lambda i,f,d : MonthArticleSentenceGenerator (input_dir=i, file_list=f, year=d[0],   month=d[1], depth=2 * 12),
-    "3year"      : lambda i,f,d : MonthArticleSentenceGenerator (input_dir=i, file_list=f, year=d[0],   month=d[1], depth=3 * 12),
-    "month"      : lambda i,f,d : MonthArticleSentenceGenerator (input_dir=i, file_list=f, year=d[0],   month=d[1], depth=1),
-    "2month"     : lambda i,f,d : MonthArticleSentenceGenerator (input_dir=i, file_list=f, year=d[0],   month=d[1], depth=2),
-    "cumulative" : lambda i,f,d : CumulativeYearArticleSentenceGenerator (input_dir=i, file_list=f, year=d)
+    "year"       : lambda i,f,d,g : MonthArticleSentenceGenerator (input_dir=i, file_list=f, year=d[0],   month=d[1], hgnc=g, depth=1 * 12),
+    "2year"      : lambda i,f,d,g : MonthArticleSentenceGenerator (input_dir=i, file_list=f, year=d[0],   month=d[1], hgnc=g, depth=2 * 12),
+    "3year"      : lambda i,f,d,g : MonthArticleSentenceGenerator (input_dir=i, file_list=f, year=d[0],   month=d[1], hgnc=g, depth=3 * 12),
+    "month"      : lambda i,f,d,g : MonthArticleSentenceGenerator (input_dir=i, file_list=f, year=d[0],   month=d[1], hgnc=g, depth=1),
+    "2month"     : lambda i,f,d,g : MonthArticleSentenceGenerator (input_dir=i, file_list=f, year=d[0],   month=d[1], hgnc=g, depth=2),
+    "cumulative" : lambda i,f,d,g : CumulativeYearArticleSentenceGenerator (input_dir=i, file_list=f, year=d, hgnc=g)
 }
 
 def generate_model (file_name, sentences):
@@ -275,8 +313,8 @@ def main ():
     parser.add_argument("--slices", help="Number of slices of files to iterate over.")
     parser.add_argument("--parts",  help="Number of partitions for the computation.")
     parser.add_argument("--venv",   help="Path to Python virtual environment to use")
-    args = parser.parse_args()
 
+    args = parser.parse_args()
     conf = EvaluateConf (
         spark_conf = SparkConf (host           = args.host,
                                 venv           = args.venv,
@@ -290,6 +328,15 @@ def main ():
     model_dir = os.path.join (root, "w2v", "gensim")
     sc = SparkUtil.get_spark_context (conf.spark_conf)
     file_list = "/projects/stars/app/chemotext/filelist.json"
-    build_all_models (sc, conf.input_dir, file_list, model_dir)
- 
+
+#    hgnc = os.path.join (os.path.basedir (conf.spark_conf.otput_dir), "HGNC", "HGNCGeneFamilyDataSet.csv")
+    hgnc = os.path.join (conf.output_dir, "HGNC", "HGNCGeneSynonyms.csv")
+    print ("hgnc: {0}".format (hgnc))
+
+    build_all_models (sc, conf.input_dir, file_list, model_dir, hgnc)
+
+#    gene_syn = GeneSynonyms ("/projects/stars/var/chemotext/HGNC/HGNCGeneSynonyms.csv")
+#    print (gene_syn.get_canonical ("SCAR1"))
+#    print (gene_syn.make_canonical ("bob alice fred map2a map2b merlin skip big2"))
+
 main ()
